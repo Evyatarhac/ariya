@@ -390,3 +390,29 @@ html, body {
 }
 .int-status-line.ok { color: var(--good); }
 .int-status-line.err { color: var(--bad); }
+
+/* ── OAUTH SETUP GUIDE ─────────────────────────────── */
+.int-setup-guide {
+  background: rgba(0,8,14,0.6);
+  border: 1px solid rgba(95,216,255,0.12);
+  border-radius: 8px; padding: 14px; margin-bottom: 12px;
+}
+.setup-title {
+  font-size: 10px; letter-spacing: 3px; color: var(--accent);
+  margin-bottom: 10px; text-transform: uppercase;
+}
+.setup-steps {
+  padding-left: 18px; color: var(--dim); font-size: 11px; line-height: 2;
+  list-style: decimal;
+}
+.setup-steps li { margin-bottom: 2px; }
+.setup-steps b { color: var(--text); }
+.setup-steps code {
+  background: rgba(95,216,255,0.1); padding: 1px 5px;
+  border-radius: 3px; color: var(--accent);
+  font-family: monospace; font-size: 10px;
+}
+.int-divider {
+  text-align: center; color: var(--dim); font-size: 10px;
+  letter-spacing: 1px; margin: 14px 0 10px;
+}

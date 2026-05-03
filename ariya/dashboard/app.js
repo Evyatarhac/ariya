@@ -413,35 +413,65 @@ function openIntModal(intId) {
   const st = _intStatus;
 
   if (intId === "git") {
-    const ghUser  = st.github?.user  ? `<div class="int-status-line ok">✓ Connected as <b>${st.github.user}</b></div>` : "";
-    const repoList = (st.github?.repos || []).map(r => `<div style="font-size:11px;color:var(--dim);padding:2px 0">📁 ${r}</div>`).join("");
+    const connected = st.github?.connected;
+    const oauthOk   = st.github?.oauth_configured;
+    const ghUser    = connected ? `<div class="int-status-line ok" style="margin-bottom:10px">✓ Connected as <b>${st.github.user}</b></div>` : "";
+    const repoList  = (st.github?.repos || []).map(r =>
+      `<div style="font-size:11px;color:var(--dim);padding:2px 0">📁 ${r}</div>`).join("");
+
+    const oauthBtn = oauthOk
+      ? `<button class="int-save" onclick="oauthLogin('github')">${connected ? "↻ RE-CONNECT" : "CONNECT WITH GITHUB"}</button>`
+      : `<div class="int-setup-guide">
+          <div class="setup-title">Set up GitHub OAuth</div>
+          <ol class="setup-steps">
+            <li>Go to <b>github.com/settings/developers</b> → "OAuth Apps" → "New OAuth App"</li>
+            <li>Callback URL: <code>http://127.0.0.1:9001/api/auth/github/callback</code></li>
+            <li>Copy <b>Client ID</b> + <b>Client Secret</b> into your <code>.env</code> file</li>
+            <li>Restart ARIYA — the button will activate</li>
+          </ol>
+          <div style="color:var(--dim);font-size:10px;margin-top:8px">Or skip OAuth and paste a Personal Access Token below ↓</div>
+        </div>`;
+
     body.innerHTML = `
       ${ghUser}
-      ${repoList ? `<div style="margin:10px 0 4px;font-size:10px;letter-spacing:2px;color:var(--dim)">RECENT REPOS</div>${repoList}` : ""}
-      <button class="int-save" style="margin-top:16px" onclick="oauthLogin('github')">
-        ${st.github?.connected ? "↻ RE-CONNECT" : "CONNECT WITH GITHUB"}
-      </button>
-      <div style="margin-top:14px;color:var(--dim);font-size:10px;letter-spacing:1px">── or paste a personal access token ──</div>
-      <div class="int-field" style="margin-top:10px">
-        <label>TOKEN</label>
-        <input type="password" id="git_token_inp" placeholder="ghp_..." value="${st.github?.connected ? "••••••••" : ""}"/>
+      ${repoList ? `<div style="margin:4px 0;font-size:10px;letter-spacing:2px;color:var(--dim)">RECENT REPOS</div>${repoList}<div style="margin-top:12px"></div>` : ""}
+      ${oauthBtn}
+      <div class="int-divider">── or Personal Access Token ──</div>
+      <div class="int-field">
+        <label>TOKEN (ghp_...)</label>
+        <input type="password" id="git_token_inp" placeholder="ghp_xxxxxxxxxxxx"/>
       </div>
       <button class="int-save" onclick="saveTokenManual('github','git_token_inp')">SAVE TOKEN</button>
       <div class="int-status-line" id="intStatusLine"></div>`;
 
   } else if (intId === "clickup") {
-    const cuUser = st.clickup?.user ? `<div class="int-status-line ok">✓ Connected as <b>${st.clickup.user}</b></div>` : "";
-    const teams  = (st.clickup?.teams || []).map(t => `<div style="font-size:11px;color:var(--dim);padding:2px 0">🏢 ${t}</div>`).join("");
+    const connected = st.clickup?.connected;
+    const oauthOk   = st.clickup?.oauth_configured;
+    const cuUser    = connected ? `<div class="int-status-line ok" style="margin-bottom:10px">✓ Connected as <b>${st.clickup.user}</b></div>` : "";
+    const teams     = (st.clickup?.teams || []).map(t =>
+      `<div style="font-size:11px;color:var(--dim);padding:2px 0">🏢 ${t}</div>`).join("");
+
+    const oauthBtn = oauthOk
+      ? `<button class="int-save" onclick="oauthLogin('clickup')">${connected ? "↻ RE-CONNECT" : "CONNECT WITH CLICKUP"}</button>`
+      : `<div class="int-setup-guide">
+          <div class="setup-title">Set up ClickUp OAuth</div>
+          <ol class="setup-steps">
+            <li>Go to <b>app.clickup.com/settings/apps</b> → "Create App"</li>
+            <li>Redirect URL: <code>http://127.0.0.1:9001/api/auth/clickup/callback</code></li>
+            <li>Copy <b>Client ID</b> + <b>Secret Key</b> into your <code>.env</code> file</li>
+            <li>Restart ARIYA — the button will activate</li>
+          </ol>
+          <div style="color:var(--dim);font-size:10px;margin-top:8px">Or skip OAuth and paste your API Token below ↓</div>
+        </div>`;
+
     body.innerHTML = `
       ${cuUser}
-      ${teams ? `<div style="margin:10px 0 4px;font-size:10px;letter-spacing:2px;color:var(--dim)">WORKSPACES</div>${teams}` : ""}
-      <button class="int-save" style="margin-top:16px" onclick="oauthLogin('clickup')">
-        ${st.clickup?.connected ? "↻ RE-CONNECT" : "CONNECT WITH CLICKUP"}
-      </button>
-      <div style="margin-top:14px;color:var(--dim);font-size:10px;letter-spacing:1px">── or paste an API token ──</div>
-      <div class="int-field" style="margin-top:10px">
-        <label>TOKEN</label>
-        <input type="password" id="cu_token_inp" placeholder="pk_..." value="${st.clickup?.connected ? "••••••••" : ""}"/>
+      ${teams ? `<div style="margin:4px 0;font-size:10px;letter-spacing:2px;color:var(--dim)">WORKSPACES</div>${teams}<div style="margin-top:12px"></div>` : ""}
+      ${oauthBtn}
+      <div class="int-divider">── or API Token ──</div>
+      <div class="int-field">
+        <label>TOKEN (pk_...)</label>
+        <input type="password" id="cu_token_inp" placeholder="pk_xxxxxxxxxxxx"/>
       </div>
       <button class="int-save" onclick="saveTokenManual('clickup','cu_token_inp')">SAVE TOKEN</button>
       <div class="int-status-line" id="intStatusLine"></div>`;

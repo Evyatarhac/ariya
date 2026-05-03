@@ -47,8 +47,18 @@ def integration_status() -> dict:
     gh = _tokens["github"]
     cu = _tokens["clickup"]
     return {
-        "github":  {"connected": bool(gh["token"]), "user": gh["user"], "repos": gh["repos"][:5]},
-        "clickup": {"connected": bool(cu["token"]), "user": cu["user"], "teams": cu["teams"]},
+        "github":  {
+            "connected": bool(gh["token"]),
+            "oauth_configured": bool(GH_CLIENT_ID),
+            "user": gh["user"],
+            "repos": gh["repos"][:5],
+        },
+        "clickup": {
+            "connected": bool(cu["token"]),
+            "oauth_configured": bool(CU_CLIENT_ID),
+            "user": cu["user"],
+            "teams": cu["teams"],
+        },
     }
 
 
