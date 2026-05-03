@@ -766,12 +766,21 @@ async function submit(text) {
     return;
   }
 
-  // treat as brief
-  const name = text.split(/[.,\n]/)[0].slice(0, 48) || "New Project";
-  ariyaSay("Acknowledged. Decomposing the brief and activating the agent network.");
-  const res = await api("POST", "/api/projects", { name, brief: text });
-  if (res.error) { ariyaSay("An error occurred: " + res.error); }
-  else { ariyaSay(`Project ${res.project_id?.slice(0,8)} initiated — routing to SCOUT.`); }
+  // Everything else: ask ARIYA's chat endpoint to classify + reply
+  try {
+    const r = await api("POST", "/api/chat", { text });
+    if (r.intent === "project") {
+      const name = text.split(/[.,\n]/)[0].slice(0, 48) || "New Project";
+      ariyaSay(r.reply || "Acknowledged. Routing to SCOUT.");
+      const res = await api("POST", "/api/projects", { name, brief: text });
+      if (res.error) ariyaSay("An error occurred: " + res.error);
+      else ariyaSay(`Project ${res.project_id?.slice(0,8)} initiated — agents engaging.`);
+    } else {
+      ariyaSay(r.reply || "Standing by.");
+    }
+  } catch (e) {
+    ariyaSay("Connection to my brain failed: " + (e.message || e));
+  }
   $("orb").classList.remove("thinking");
 }
 

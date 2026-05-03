@@ -129,6 +129,79 @@ def get_dlq():
     return [{"signal": s.model_dump(), "error": err} for s, err in bus.dlq()]
 
 
+# ── ARIYA conversational chat ───────────────────────────────────
+class ChatIn(BaseModel):
+    text: str
+
+ARIYA_SYSTEM_PROMPT = (
+    "You are ARIYA — the orchestrator brain of an autonomous multi-agent "
+    "engineering studio. You command nine specialist agents: SCOUT (research), "
+    "ARCHITECT (specs), SENTINEL (review/security), FORGE-BE (backend), "
+    "FORGE-FE (frontend), PROBE (manual QA), GUARDIAN (automated tests), "
+    "PHOENIX (self-healing), and HERALD (delivery). "
+    "Speak in a calm, confident, slightly formal tone — think Jarvis. "
+    "Answers should be 1–3 short sentences unless the user asks for depth. "
+    "When the user describes a project to build, briefly acknowledge and say "
+    "you're routing it to SCOUT — do NOT actually create the project yourself "
+    "in chat (the orchestrator handles that separately). "
+    "When asked status/cost/repos questions, answer from the live context "
+    "the user provides."
+)
+
+def _classify_intent(text: str) -> str:
+    """Classify user input → 'project' (build something) | 'command' | 'chat'."""
+    t = text.lower().strip()
+    if t in ("status", "report", "מה המצב"): return "command"
+    if t.startswith("approve "): return "command"
+    # project signals: imperative build verbs
+    triggers = ["build ", "create ", "make ", "develop ", "design ", "תבנה",
+                "תפתח", "תעצב", "ship ", "launch a ", "i want to build",
+                "i need an app", "a website", "a system that"]
+    if any(tr in t for tr in triggers) and len(text.split()) >= 4:
+        return "project"
+    return "chat"
+
+@router.post("/chat")
+async def chat(c: ChatIn):
+    """ARIYA's conversational endpoint. Returns reply + detected intent."""
+    intent = _classify_intent(c.text)
+
+    if intent == "command":
+        # Caller (frontend) handles status/approve directly via existing endpoints.
+        return {"intent": "command", "reply": ""}
+
+    # Build live context for ARIYA
+    projects = store.list_projects()
+    cost_snap = cost.snapshot()
+    integ = integration_status()
+    context = (
+        f"Active projects: {len(projects)} "
+        f"({', '.join(p.name + '/' + p.phase for p in projects[:5]) or 'none'}). "
+        f"Total spend: ${cost_snap.get('total_usd', 0):.4f}. "
+        f"GitHub: {'connected as ' + integ['github']['user'] if integ['github']['connected'] else 'not connected'}. "
+        f"ClickUp: {'connected as ' + integ['clickup']['user'] if integ['clickup']['connected'] else 'not connected'}."
+    )
+    prompt = f"Live system state: {context}\n\nUser: {c.text}\n\nReply as ARIYA:"
+
+    try:
+        reply = await gateway.complete(
+            agent_id="ARIYA",
+            prompt=prompt,
+            system=ARIYA_SYSTEM_PROMPT,
+            max_tokens=400,
+        )
+        # Strip mock prefix if in mock mode for cleaner UX
+        if reply.startswith("[MOCK::"):
+            reply = "Acknowledged. " + (
+                "Network is online and idle." if not projects
+                else f"Tracking {len(projects)} project(s)."
+            )
+    except Exception as e:
+        reply = f"My language core is offline ({type(e).__name__}). Falling back to command mode."
+
+    return {"intent": intent, "reply": reply.strip()}
+
+
 @router.get("/integrations")
 def integrations():
     return integration_status()
