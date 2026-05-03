@@ -81,6 +81,30 @@ html, body {
 }
 
 /* ── CONSTELLATION SVG ────────────────────────────── */
+.mesh {
+  position: absolute;
+  width: min(600px, 88%);
+  aspect-ratio: 1;
+  top: 50%; left: 50%;
+  transform: translate(-50%, calc(-50% - 40px));
+  pointer-events: none;
+  z-index: 1;
+}
+.mesh-legend {
+  position: absolute;
+  left: 16px; bottom: 16px;
+  display: grid; grid-template-columns: auto auto;
+  gap: 4px 10px;
+  font-size: 9px; letter-spacing: 2px;
+  color: var(--dim); opacity: 0.55;
+  pointer-events: none;
+  z-index: 4;
+}
+.mesh-legend .lg { display: flex; align-items: center; gap: 6px; }
+.mesh-legend .lg-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  box-shadow: 0 0 6px currentColor;
+}
 .constellation {
   position: absolute;
   width: min(600px, 88%);
@@ -88,6 +112,7 @@ html, body {
   top: 50%; left: 50%;
   transform: translate(-50%, calc(-50% - 40px));
   pointer-events: none;
+  z-index: 2;
   z-index: 1;
 }
 

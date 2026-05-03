@@ -224,6 +224,24 @@ function ariyaSay(text) {
 const AGENT_NAMES = ["SCOUT","ARCHITECT","SENTINEL","FORGE-BE","FORGE-FE","PROBE","GUARDIAN","PHOENIX"];
 const NODES = { ARIYA: null }; // filled after layout
 
+// Per-agent color identity (used by the neural mesh)
+const AGENT_COLORS = {
+  "ARIYA":     "#c2f0ff",
+  "SCOUT":     "#ffd166",
+  "ARCHITECT": "#b388ff",
+  "SENTINEL":  "#ff9f43",
+  "FORGE-BE":  "#4cffaa",
+  "FORGE-FE":  "#ff6bd6",
+  "PROBE":     "#5fb8ff",
+  "GUARDIAN":  "#ff6b6b",
+  "PHOENIX":   "#ffcc33",
+};
+function agentColor(id) { return AGENT_COLORS[id] || "#5fd8ff"; }
+function hexToRgba(hex, a) {
+  const h = hex.replace("#",""); const n = parseInt(h, 16);
+  return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${a})`;
+}
+
 function buildConstellation() {
   const svg = $("constellation");
   const W = svg.clientWidth || 560, H = svg.clientHeight || 560;
@@ -235,50 +253,180 @@ function buildConstellation() {
     const a = (i / AGENT_NAMES.length) * Math.PI * 2 - Math.PI / 2;
     NODES[id] = { x: cx + r * Math.cos(a), y: cy + r * Math.sin(a) };
   });
-  // Draw static ring + node markers
-  let h = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="rgba(95,216,255,0.06)" stroke-dasharray="3 8"/>`;
-  h += `<g id="edges"></g>`;
+  // Draw static ring + colored node markers + labels
+  let h = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="rgba(95,216,255,0.05)" stroke-dasharray="2 10"/>`;
   AGENT_NAMES.forEach(id => {
     const p = NODES[id];
+    const c = agentColor(id);
+    const labelOffset = (p.y < cy - 4) ? -14 : 22;
     h += `<g class="cnode" data-id="${id}">
-      <circle cx="${p.x}" cy="${p.y}" r="4" fill="rgba(95,216,255,0.15)" stroke="rgba(95,216,255,0.3)" stroke-width="1"/>
+      <circle cx="${p.x}" cy="${p.y}" r="5" fill="${hexToRgba(c,0.25)}" stroke="${c}" stroke-width="1.2"/>
+      <text x="${p.x}" y="${p.y + labelOffset}" text-anchor="middle"
+            font-family="monospace" font-size="9" letter-spacing="2" fill="${hexToRgba(c,0.55)}">${id}</text>
     </g>`;
   });
   svg.innerHTML = h;
+
+  buildMeshLegend();
+  setupMeshCanvas();
 }
 
-function flashEdge(from, to, color = "rgba(95,216,255,0.9)") {
-  const a = NODES[from], b = NODES[to];
-  if (!a || !b) return;
-  const svg = $("constellation");
-  const ns = "http://www.w3.org/2000/svg";
-  const line = document.createElementNS(ns, "line");
-  line.setAttribute("x1", a.x); line.setAttribute("y1", a.y);
-  line.setAttribute("x2", a.x); line.setAttribute("y2", a.y);
-  line.setAttribute("stroke", color);
-  line.setAttribute("stroke-width", "1.2");
-  line.setAttribute("stroke-linecap", "round");
-  svg.appendChild(line);
+function buildMeshLegend() {
+  const lg = $("meshLegend");
+  if (!lg) return;
+  lg.innerHTML = ["ARIYA", ...AGENT_NAMES].map(id => {
+    const c = agentColor(id);
+    return `<div class="lg"><span class="lg-dot" style="background:${c};color:${c}"></span>${id}</div>`;
+  }).join("");
+}
 
-  const t0 = performance.now();
-  const draw = () => {
-    const k = Math.min(1, (performance.now() - t0) / 500);
-    line.setAttribute("x2", a.x + (b.x - a.x) * k);
-    line.setAttribute("y2", a.y + (b.y - a.y) * k);
-    line.setAttribute("opacity", String(1 - k * 0.6));
-    if (k < 1) requestAnimationFrame(draw);
-    else setTimeout(() => line.remove(), 300);
-  };
-  requestAnimationFrame(draw);
+// ══════════════════════════════════════════════════════
+//  NEURAL MESH (canvas particle system)
+// ══════════════════════════════════════════════════════
+let _mesh = { ctx: null, w: 0, h: 0, particles: [], glows: [], synapses: [], lastResting: 0 };
 
-  // Light up target node
-  const node = svg.querySelector(`.cnode[data-id="${to}"] circle`);
-  if (node) {
-    node.setAttribute("fill", "rgba(95,216,255,0.8)");
-    node.setAttribute("r", "7");
-    setTimeout(() => { node.setAttribute("fill", "rgba(95,216,255,0.15)"); node.setAttribute("r", "4"); }, 700);
+function setupMeshCanvas() {
+  const cv = $("mesh"); if (!cv) return;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const rect = cv.getBoundingClientRect();
+  cv.width  = Math.round(rect.width  * dpr);
+  cv.height = Math.round(rect.height * dpr);
+  const ctx = cv.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  _mesh.ctx = ctx;
+  _mesh.w = rect.width; _mesh.h = rect.height;
+
+  // Pre-generate resting synapse fibers (subtle wandering lines through nodes)
+  _mesh.synapses = [];
+  const ids = ["ARIYA", ...AGENT_NAMES];
+  for (let i = 0; i < ids.length; i++) {
+    for (let j = i + 1; j < ids.length; j++) {
+      const a = NODES[ids[i]], b = NODES[ids[j]];
+      if (!a || !b) continue;
+      // Skip distant pairs (avoid hairball); keep ARIYA-* and adjacent pairs
+      const isCenter = ids[i] === "ARIYA" || ids[j] === "ARIYA";
+      if (!isCenter && Math.random() > 0.35) continue;
+      _mesh.synapses.push({ a, b, phase: Math.random() * Math.PI * 2 });
+    }
+  }
+  if (!_mesh._raf) {
+    _mesh._raf = true;
+    requestAnimationFrame(meshLoop);
   }
 }
+
+function spawnParticle(from, to, type = "TASK") {
+  const a = NODES[from], b = NODES[to];
+  if (!a || !b || !_mesh.ctx) return;
+  const sender = agentColor(from);
+  const receiver = agentColor(to);
+  _mesh.particles.push({
+    ax: a.x, ay: a.y, bx: b.x, by: b.y,
+    t: 0, speed: 0.012 + Math.random() * 0.006,
+    cFrom: sender, cTo: receiver, type,
+    trail: [],
+  });
+  _mesh.glows.push({ x: a.x, y: a.y, t: 0, color: sender });
+  _mesh.glows.push({ x: b.x, y: b.y, t: -0.4, color: receiver }); // arrives later
+}
+
+function meshLoop(ts) {
+  const ctx = _mesh.ctx;
+  if (!ctx) { requestAnimationFrame(meshLoop); return; }
+  ctx.clearRect(0, 0, _mesh.w, _mesh.h);
+
+  // 1) Resting synapse fibers — slow shimmer
+  ctx.lineCap = "round";
+  for (const s of _mesh.synapses) {
+    const shimmer = 0.025 + 0.02 * Math.sin(ts * 0.0008 + s.phase);
+    ctx.strokeStyle = `rgba(95,216,255,${shimmer.toFixed(3)})`;
+    ctx.lineWidth = 0.6;
+    ctx.beginPath();
+    ctx.moveTo(s.a.x, s.a.y);
+    ctx.lineTo(s.b.x, s.b.y);
+    ctx.stroke();
+  }
+
+  // 2) Resting pulse — random faint particle every ~1.8s
+  if (ts - _mesh.lastResting > 1800) {
+    _mesh.lastResting = ts;
+    if (_mesh.synapses.length) {
+      const s = _mesh.synapses[Math.floor(Math.random() * _mesh.synapses.length)];
+      const aId = Object.keys(NODES).find(k => NODES[k] === s.a) || "ARIYA";
+      const bId = Object.keys(NODES).find(k => NODES[k] === s.b) || "ARIYA";
+      // weak particle (low alpha)
+      _mesh.particles.push({
+        ax: s.a.x, ay: s.a.y, bx: s.b.x, by: s.b.y,
+        t: 0, speed: 0.008, cFrom: agentColor(aId), cTo: agentColor(bId),
+        type: "RESTING", trail: [], faint: true,
+      });
+    }
+  }
+
+  // 3) Active particles
+  _mesh.particles = _mesh.particles.filter(p => {
+    p.t += p.speed;
+    const k = p.t;
+    const x = p.ax + (p.bx - p.ax) * k;
+    const y = p.ay + (p.by - p.ay) * k;
+    p.trail.push({ x, y });
+    if (p.trail.length > 14) p.trail.shift();
+
+    // Trail
+    for (let i = 0; i < p.trail.length; i++) {
+      const tp = p.trail[i];
+      const ratio = i / p.trail.length;
+      const fade = (p.faint ? 0.12 : 0.55) * ratio;
+      ctx.fillStyle = blendColors(p.cFrom, p.cTo, ratio).replace(/[\d.]+\)$/, `${fade})`);
+      ctx.beginPath();
+      ctx.arc(tp.x, tp.y, p.faint ? 1.0 : 1.6 * ratio + 0.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Head
+    if (!p.faint) {
+      const headColor = blendColors(p.cFrom, p.cTo, k);
+      ctx.shadowBlur = 12;
+      ctx.shadowColor = headColor;
+      ctx.fillStyle = headColor;
+      ctx.beginPath(); ctx.arc(x, y, 2.6, 0, Math.PI * 2); ctx.fill();
+      ctx.shadowBlur = 0;
+    } else {
+      ctx.fillStyle = blendColors(p.cFrom, p.cTo, k).replace(/[\d.]+\)$/, "0.35)");
+      ctx.beginPath(); ctx.arc(x, y, 1.4, 0, Math.PI * 2); ctx.fill();
+    }
+
+    return p.t < 1;
+  });
+
+  // 4) Node glow halos
+  _mesh.glows = _mesh.glows.filter(g => {
+    g.t += 0.04;
+    if (g.t < 0) return true;
+    const k = Math.min(1, g.t);
+    const r = 8 + 18 * k;
+    const a = (1 - k) * 0.7;
+    ctx.strokeStyle = hexToRgba(g.color, a);
+    ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.arc(g.x, g.y, r, 0, Math.PI * 2); ctx.stroke();
+    return g.t < 1;
+  });
+
+  requestAnimationFrame(meshLoop);
+}
+
+function blendColors(hex1, hex2, t) {
+  const p = (h) => { const n = parseInt(h.replace("#",""),16); return [(n>>16)&255,(n>>8)&255,n&255]; };
+  const a = p(hex1), b = p(hex2);
+  const r = Math.round(a[0] + (b[0]-a[0])*t);
+  const g = Math.round(a[1] + (b[1]-a[1])*t);
+  const bl= Math.round(a[2] + (b[2]-a[2])*t);
+  return `rgba(${r},${g},${bl},1)`;
+}
+
+window.addEventListener("resize", () => {
+  buildConstellation();
+});
 
 // ══════════════════════════════════════════════════════
 //  AGENT CUBES (right rail)
@@ -380,8 +528,7 @@ const sigColors = {
 };
 
 function narrate(s) {
-  const col = sigColors[s.type] || "rgba(95,216,255,0.7)";
-  flashEdge(s.from, s.to, col);
+  spawnParticle(s.from, s.to, s.type);
   SFX.agent();
   if (s.type === "APPROVAL") SFX.approve();
   if (s.type === "ALERT")    SFX.alert();

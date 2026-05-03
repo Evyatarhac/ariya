@@ -30,8 +30,14 @@
 <!-- Main stage -->
 <div class="stage">
 
-  <!-- Agent constellation SVG (behind orb) -->
+  <!-- Neural mesh canvas (deepest layer) -->
+  <canvas id="mesh" class="mesh"></canvas>
+
+  <!-- Agent constellation SVG (markers + labels) -->
   <svg id="constellation" class="constellation"></svg>
+
+  <!-- Color legend -->
+  <div class="mesh-legend" id="meshLegend"></div>
 
   <!-- Central orb -->
   <div class="orb-shell" id="orbShell">
