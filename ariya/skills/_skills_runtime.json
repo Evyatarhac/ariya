@@ -4,16 +4,16 @@
     "name": "Market Research",
     "category": "RESEARCH",
     "agent_id": "SCOUT",
-    "proficiency": 0.87,
+    "proficiency": 0.89,
     "version": "1.0.0",
     "prompt_template": "Conduct market research on: {topic}. Identify competitors, feature gaps, and opportunities.",
     "examples": [],
     "constraints": [],
     "dependencies": [],
-    "last_used": "2026-05-03T14:17:15.461809+00:00",
+    "last_used": "2026-05-03T14:21:16.682075+00:00",
     "success_rate": 1.0,
-    "uses": 1,
-    "successes": 1
+    "uses": 2,
+    "successes": 2
   },
   {
     "skill_id": "1979972f-2785-467d-8eeb-d2857ab7771f",

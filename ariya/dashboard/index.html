@@ -2,61 +2,64 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<title>ARIYA — Neural Command</title>
+<title>ARIYA</title>
 <link rel="stylesheet" href="/static/styles.css" />
 </head>
 <body>
-<header class="topbar">
-  <div class="brand">
-    <span class="logo">◉</span>
-    <span class="title">A R I Y A</span>
-    <span class="sub">Autonomous R&amp;D Intelligence Yielding Architecture</span>
+
+<!-- Minimal top bar -->
+<div class="topbar">
+  <div class="brand-min">A · R · I · Y · A</div>
+  <div class="status" id="status">●</div>
+</div>
+
+<!-- The core: a single Jarvis-style AI orb -->
+<div class="stage" id="stage">
+
+  <!-- Agent constellation — orbits around the orb. Quiet by default; lights up when communicating. -->
+  <svg id="constellation" class="constellation"></svg>
+
+  <!-- The orb -->
+  <div class="orb-wrap" id="orbWrap">
+    <div class="orb">
+      <div class="ring r1"></div>
+      <div class="ring r2"></div>
+      <div class="ring r3"></div>
+      <div class="core"></div>
+      <div class="orb-label">ARIYA</div>
+    </div>
+    <div class="hint" id="hint">— click to speak —</div>
   </div>
-  <div class="status" id="status">connecting…</div>
-</header>
 
-<main class="grid">
-  <section class="panel terminal">
-    <h2>Command Terminal</h2>
-    <textarea id="brief" rows="3" placeholder="ARIYA, build me a SaaS dashboard for restaurant orders. React + Node + PostgreSQL. Production-ready."></textarea>
-    <div class="row">
-      <input id="pname" placeholder="Project name" />
-      <select id="template">
-        <option value="">-- template --</option>
-        <option value="saas">SaaS Dashboard</option>
-        <option value="ecommerce">E-Commerce</option>
-        <option value="mobile-api">Mobile API</option>
-      </select>
-      <button id="launch">⟶ Launch</button>
-    </div>
-    <div id="reply" class="reply"></div>
-  </section>
+  <!-- Conversation strip -->
+  <div class="conversation" id="conv"></div>
 
-  <section class="panel agents">
-    <h2>Agent Neural Grid</h2>
-    <div id="agents" class="agent-grid"></div>
-  </section>
+  <!-- Input -->
+  <div class="composer">
+    <input id="input" placeholder="ARIYA, what should we build today?" autocomplete="off" />
+    <button id="send" title="Send">→</button>
+  </div>
 
-  <section class="panel flow">
-    <h2>Neural Flow Map</h2>
-    <svg id="graph" viewBox="0 0 600 320"></svg>
-    <div class="cost-row">
-      <span>Σ tokens in: <b id="cost-in">0</b></span>
-      <span>Σ tokens out: <b id="cost-out">0</b></span>
-      <span>Σ cost: <b id="cost-usd">$0</b></span>
-    </div>
-  </section>
+</div>
 
-  <section class="panel projects">
-    <h2>Projects</h2>
-    <div id="projects"></div>
-  </section>
+<!-- Slide-out details drawer (only shown when user asks for them) -->
+<aside class="drawer" id="drawer">
+  <div class="drawer-tabs">
+    <button class="tab active" data-tab="agents">Agents</button>
+    <button class="tab" data-tab="signals">Signals</button>
+    <button class="tab" data-tab="projects">Projects</button>
+    <button class="tab" data-tab="cost">Cost</button>
+    <button class="close" id="closeDrawer">×</button>
+  </div>
+  <div class="drawer-body">
+    <div class="tab-pane active" id="pane-agents"></div>
+    <div class="tab-pane" id="pane-signals"></div>
+    <div class="tab-pane" id="pane-projects"></div>
+    <div class="tab-pane" id="pane-cost"></div>
+  </div>
+</aside>
 
-  <section class="panel activity full">
-    <h2>Signal Stream</h2>
-    <div id="activity" class="activity-list"></div>
-  </section>
-</main>
+<button class="drawer-toggle" id="openDrawer" title="System detail">⋯</button>
 
 <script src="/static/app.js"></script>
 </body>
