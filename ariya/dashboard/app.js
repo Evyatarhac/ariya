@@ -86,6 +86,59 @@ $("ttsToggle").addEventListener("click", () => {
 });
 
 // ══════════════════════════════════════════════════════
+//  CLAP DETECTOR  (ambient microphone — always-on)
+//
+//  Clap = sharp transient: RMS spikes above threshold in
+//  < 40 ms then drops. We look for two such spikes within
+//  600 ms to confirm a "clap" (avoids false positives from
+//  single thuds). On detection → ARIYA greets.
+// ══════════════════════════════════════════════════════
+let clapStream = null;
+let lastClapTime = 0;
+const CLAP_THRESHOLD = 0.18;   // RMS amplitude 0-1
+const CLAP_WINDOW    = 600;    // ms between two spikes = double-clap (single clap fires on first)
+
+async function startClapListener() {
+  try {
+    clapStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    const ctx   = getACtx();
+    const src   = ctx.createMediaStreamSource(clapStream);
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 256;
+    src.connect(analyser);
+    const buf = new Float32Array(analyser.fftSize);
+
+    let triggered = false;
+    function loop() {
+      analyser.getFloatTimeDomainData(buf);
+      let rms = 0;
+      for (let i = 0; i < buf.length; i++) rms += buf[i] * buf[i];
+      rms = Math.sqrt(rms / buf.length);
+
+      if (rms > CLAP_THRESHOLD && !triggered) {
+        triggered = true;
+        const now = Date.now();
+        if (now - lastClapTime < CLAP_WINDOW) {
+          // second clap within window → fire greeting
+          onClap();
+        }
+        lastClapTime = now;
+        setTimeout(() => { triggered = false; }, 120);
+      }
+      requestAnimationFrame(loop);
+    }
+    loop();
+  } catch (_) {
+    // microphone denied or unavailable — silently skip
+  }
+}
+
+function onClap() {
+  SFX.approve();
+  ariyaSay("Greetings, Sir.");
+}
+
+// ══════════════════════════════════════════════════════
 //  SPEECH-TO-TEXT (microphone)
 // ══════════════════════════════════════════════════════
 let recognition = null;
@@ -470,6 +523,7 @@ function boot() {
   window.addEventListener("resize", () => { buildConstellation(); });
   initTTS();
   initSTT();
+  startClapListener();
   refreshIntDots();
   SFX.boot();
   setTimeout(() => ariyaSay("ARIYA online. Neural network standing by. Speak your brief."), 600);
