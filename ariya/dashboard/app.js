@@ -1,79 +1,194 @@
-const AGENTS = ["SCOUT","ARCHITECT","SENTINEL","FORGE-BE","FORGE-FE","PROBE","GUARDIAN","PHOENIX"];
-const GATES = ["design","architecture","code","qa","deploy"];
+"use strict";
+
+// ═══════════════════════════════════════════════════
+//  ARIYA — Jarvis-style dashboard
+// ═══════════════════════════════════════════════════
+
 const TOKEN = localStorage.getItem("ariya_token") || "";
-
 const $ = (id) => document.getElementById(id);
-const orb = () => document.querySelector(".orb");
 
+// ── API ──────────────────────────────────────────────
 async function api(method, path, body) {
-  const opts = { method, headers: { "Content-Type": "application/json" } };
-  if (TOKEN) opts.headers.Authorization = `Bearer ${TOKEN}`;
-  if (body) opts.body = JSON.stringify(body);
-  const r = await fetch(path, opts);
+  const h = { "Content-Type": "application/json" };
+  if (TOKEN) h.Authorization = `Bearer ${TOKEN}`;
+  const r = await fetch(path, {
+    method, headers: h,
+    body: body ? JSON.stringify(body) : undefined,
+  });
   return r.json();
 }
 
-// ─── Conversation ───────────────────────────────────────────
-let lastSeenSignal = 0;
-const conv = $("conv");
+// ══════════════════════════════════════════════════════
+//  SOUND ENGINE  (Jarvis-style — all synthesised, no files)
+// ══════════════════════════════════════════════════════
+let actx = null;
+function getACtx() {
+  if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
+  return actx;
+}
+function tone(freq, dur = 0.08, vol = 0.12, type = "sine", delay = 0) {
+  try {
+    const ctx = getACtx();
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.connect(g); g.connect(ctx.destination);
+    o.type = type; o.frequency.value = freq;
+    const t = ctx.currentTime + delay;
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(vol, t + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.start(t); o.stop(t + dur + 0.01);
+  } catch (_) {}
+}
+const SFX = {
+  boot:     () => { tone(220,0.15,0.1,"sine",0); tone(330,0.12,0.09,"sine",0.14); tone(440,0.18,0.12,"sine",0.26); tone(660,0.22,0.1,"sine",0.38); },
+  receive:  () => { tone(880,0.06,0.08,"sine",0); tone(660,0.08,0.07,"sine",0.07); },
+  send:     () => { tone(440,0.06,0.1,"sine",0); tone(660,0.08,0.1,"sine",0.06); },
+  agent:    () => { tone(528,0.05,0.07,"triangle",0); },
+  alert:    () => { tone(300,0.1,0.12,"sawtooth",0); tone(200,0.12,0.1,"sawtooth",0.12); },
+  approve:  () => { tone(660,0.06,0.09,"sine",0); tone(880,0.1,0.1,"sine",0.07); tone(1100,0.12,0.09,"sine",0.16); },
+  click:    () => tone(720,0.04,0.06,"sine"),
+};
 
-function speak(text, who = "ariya") {
-  const div = document.createElement("div");
-  div.className = `msg ${who}`;
-  div.textContent = text;
-  conv.appendChild(div);
-  conv.scrollTop = conv.scrollHeight;
-  if (who === "ariya") {
-    orb().classList.add("speaking");
-    setTimeout(() => orb().classList.remove("speaking"), 700);
-  }
-  // keep last 30
-  while (conv.children.length > 40) conv.removeChild(conv.firstChild);
+// ══════════════════════════════════════════════════════
+//  TEXT-TO-SPEECH
+// ══════════════════════════════════════════════════════
+let ttsEnabled = true;
+let ttsVoice = null;
+function initTTS() {
+  if (!window.speechSynthesis) return;
+  const load = () => {
+    const voices = speechSynthesis.getVoices();
+    ttsVoice = (
+      voices.find(v => v.name.toLowerCase().includes("google uk english male")) ||
+      voices.find(v => v.name.toLowerCase().includes("samantha")) ||
+      voices.find(v => v.lang === "en-GB") ||
+      voices.find(v => v.lang.startsWith("en")) ||
+      null
+    );
+  };
+  speechSynthesis.onvoiceschanged = load;
+  load();
+}
+function speak_tts(text) {
+  if (!ttsEnabled || !window.speechSynthesis) return;
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text.slice(0, 280));
+  u.voice = ttsVoice;
+  u.pitch = 0.88; u.rate = 0.95; u.volume = 0.85;
+  speechSynthesis.speak(u);
+}
+$("ttsToggle").addEventListener("click", () => {
+  ttsEnabled = !ttsEnabled;
+  $("ttsToggle").classList.toggle("muted", !ttsEnabled);
+  $("ttsToggle").title = ttsEnabled ? "Voice on" : "Voice off";
+  SFX.click();
+});
+
+// ══════════════════════════════════════════════════════
+//  SPEECH-TO-TEXT (microphone)
+// ══════════════════════════════════════════════════════
+let recognition = null;
+let micActive = false;
+
+function initSTT() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { $("micBtn").title = "Speech not supported in this browser"; return; }
+  recognition = new SR();
+  recognition.continuous = false;
+  recognition.interimResults = true;
+  recognition.lang = "en-US";
+
+  recognition.onresult = (e) => {
+    const transcript = [...e.results].map(r => r[0].transcript).join("");
+    $("chatInput").value = transcript;
+    if (e.results[e.results.length - 1].isFinal) {
+      stopMic();
+      if (transcript.trim()) submit(transcript.trim());
+    }
+  };
+  recognition.onerror = () => stopMic();
+  recognition.onend   = () => stopMic();
 }
 
-function event(html) {
-  const div = document.createElement("div");
-  div.className = "msg event";
-  div.innerHTML = html;
-  conv.appendChild(div);
-  conv.scrollTop = conv.scrollHeight;
-  while (conv.children.length > 40) conv.removeChild(conv.firstChild);
+function startMic() {
+  if (!recognition) return;
+  micActive = true;
+  $("micBtn").classList.add("recording");
+  $("orb").classList.add("thinking");
+  SFX.send();
+  recognition.start();
+}
+function stopMic() {
+  micActive = false;
+  $("micBtn").classList.remove("recording");
+  try { recognition?.stop(); } catch (_) {}
 }
 
-// ─── Constellation (SVG) ────────────────────────────────────
-const NODES = {};
+$("micBtn").addEventListener("click", () => {
+  if (micActive) stopMic();
+  else startMic();
+});
+
+// ══════════════════════════════════════════════════════
+//  MESSAGES
+// ══════════════════════════════════════════════════════
+const msgs = $("messages");
+function addMsg(text, role) {
+  const d = document.createElement("div");
+  d.className = `msg ${role}`;
+  d.textContent = text;
+  msgs.appendChild(d);
+  msgs.scrollTop = msgs.scrollHeight;
+  while (msgs.children.length > 60) msgs.removeChild(msgs.firstChild);
+}
+function addEvent(html) {
+  const d = document.createElement("div");
+  d.className = "msg event";
+  d.innerHTML = html;
+  msgs.appendChild(d);
+  msgs.scrollTop = msgs.scrollHeight;
+  while (msgs.children.length > 60) msgs.removeChild(msgs.firstChild);
+}
+
+function ariyaSay(text) {
+  $("orb").classList.add("speaking");
+  setTimeout(() => $("orb").classList.remove("speaking"), 900);
+  SFX.receive();
+  addMsg(text, "ariya");
+  speak_tts(text);
+}
+
+// ══════════════════════════════════════════════════════
+//  CONSTELLATION
+// ══════════════════════════════════════════════════════
+const AGENT_NAMES = ["SCOUT","ARCHITECT","SENTINEL","FORGE-BE","FORGE-FE","PROBE","GUARDIAN","PHOENIX"];
+const NODES = { ARIYA: null }; // filled after layout
+
 function buildConstellation() {
   const svg = $("constellation");
-  const W = svg.clientWidth || 600, H = svg.clientHeight || 600;
-  const cx = W / 2, cy = H / 2;
-  const r = Math.min(W, H) * 0.42;
+  const W = svg.clientWidth || 560, H = svg.clientHeight || 560;
   svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
-
-  // ARIYA at center (invisible — represented by the orb DOM element)
+  const cx = W / 2, cy = H / 2;
+  const r = Math.min(W, H) * 0.43;
   NODES["ARIYA"] = { x: cx, y: cy };
-  AGENTS.forEach((id, i) => {
-    const ang = (i / AGENTS.length) * Math.PI * 2 - Math.PI / 2;
-    NODES[id] = { x: cx + r * Math.cos(ang), y: cy + r * Math.sin(ang) };
+  AGENT_NAMES.forEach((id, i) => {
+    const a = (i / AGENT_NAMES.length) * Math.PI * 2 - Math.PI / 2;
+    NODES[id] = { x: cx + r * Math.cos(a), y: cy + r * Math.sin(a) };
   });
-
-  let html = "";
-  // halo ring
-  html += `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="rgba(95,220,255,0.07)" stroke-dasharray="2 6"/>`;
-  // edges placeholder
-  html += `<g id="edges"></g>`;
-  // nodes
-  for (const id of AGENTS) {
+  // Draw static ring + node markers
+  let h = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="rgba(95,216,255,0.06)" stroke-dasharray="3 8"/>`;
+  h += `<g id="edges"></g>`;
+  AGENT_NAMES.forEach(id => {
     const p = NODES[id];
-    html += `<g class="node" data-id="${id}">
-      <circle cx="${p.x}" cy="${p.y}" r="6" fill="rgba(95,220,255,0.18)" stroke="rgba(95,220,255,0.4)"/>
-      <text x="${p.x}" y="${p.y + 22}" text-anchor="middle" fill="rgba(216,238,248,0.45)"
-            font-size="10" letter-spacing="1.5">${id}</text>
+    h += `<g class="cnode" data-id="${id}">
+      <circle cx="${p.x}" cy="${p.y}" r="4" fill="rgba(95,216,255,0.15)" stroke="rgba(95,216,255,0.3)" stroke-width="1"/>
     </g>`;
-  }
-  svg.innerHTML = html;
+  });
+  svg.innerHTML = h;
 }
 
-function flashEdge(from, to) {
+function flashEdge(from, to, color = "rgba(95,216,255,0.9)") {
   const a = NODES[from], b = NODES[to];
   if (!a || !b) return;
   const svg = $("constellation");
@@ -81,224 +196,305 @@ function flashEdge(from, to) {
   const line = document.createElementNS(ns, "line");
   line.setAttribute("x1", a.x); line.setAttribute("y1", a.y);
   line.setAttribute("x2", a.x); line.setAttribute("y2", a.y);
-  line.setAttribute("stroke", "rgba(95,220,255,0.85)");
-  line.setAttribute("stroke-width", "1.5");
+  line.setAttribute("stroke", color);
+  line.setAttribute("stroke-width", "1.2");
   line.setAttribute("stroke-linecap", "round");
   svg.appendChild(line);
-  // animate the line drawing
-  const start = performance.now();
-  const dur = 600;
-  function step(t) {
-    const k = Math.min(1, (t - start) / dur);
+
+  const t0 = performance.now();
+  const draw = () => {
+    const k = Math.min(1, (performance.now() - t0) / 500);
     line.setAttribute("x2", a.x + (b.x - a.x) * k);
     line.setAttribute("y2", a.y + (b.y - a.y) * k);
-    line.setAttribute("opacity", String(1 - k * 0.7));
-    if (k < 1) requestAnimationFrame(step);
-    else setTimeout(() => line.remove(), 400);
-  }
-  requestAnimationFrame(step);
+    line.setAttribute("opacity", String(1 - k * 0.6));
+    if (k < 1) requestAnimationFrame(draw);
+    else setTimeout(() => line.remove(), 300);
+  };
+  requestAnimationFrame(draw);
 
-  // briefly light up the target node
-  const target = svg.querySelector(`g.node[data-id="${to}"] circle`);
-  if (target) {
-    target.setAttribute("fill", "rgba(182,244,255,0.9)");
-    target.setAttribute("r", "9");
-    setTimeout(() => {
-      target.setAttribute("fill", "rgba(95,220,255,0.18)");
-      target.setAttribute("r", "6");
-    }, 700);
+  // Light up target node
+  const node = svg.querySelector(`.cnode[data-id="${to}"] circle`);
+  if (node) {
+    node.setAttribute("fill", "rgba(95,216,255,0.8)");
+    node.setAttribute("r", "7");
+    setTimeout(() => { node.setAttribute("fill", "rgba(95,216,255,0.15)"); node.setAttribute("r", "4"); }, 700);
   }
 }
 
-function updateNodeStatuses(agents) {
+// ══════════════════════════════════════════════════════
+//  AGENT CUBES (right rail)
+// ══════════════════════════════════════════════════════
+const AGENT_ROLES = {
+  "ARIYA":     "Orchestrator Brain",
+  "SCOUT":     "Market Research & Design",
+  "ARCHITECT": "Technical Specification",
+  "SENTINEL":  "Code Review & Security",
+  "FORGE-BE":  "Backend Development",
+  "FORGE-FE":  "Frontend Development",
+  "PROBE":     "Manual QA",
+  "GUARDIAN":  "Automated Testing",
+  "PHOENIX":   "Self-Healing & Bug Fix",
+};
+const AGENT_MODELS = {
+  "ARIYA":     "claude-opus-4-7",
+  "SCOUT":     "claude-sonnet-4-6",
+  "ARCHITECT": "claude-opus-4-7",
+  "SENTINEL":  "claude-opus-4-7",
+  "FORGE-BE":  "claude-sonnet-4-6",
+  "FORGE-FE":  "claude-sonnet-4-6",
+  "PROBE":     "claude-sonnet-4-6",
+  "GUARDIAN":  "claude-sonnet-4-6",
+  "PHOENIX":   "claude-opus-4-7",
+};
+
+let agentSkills = {};
+let openCube = null;
+
+function buildCubes(agents, skills) {
+  // Cache skills by agent
+  skills.forEach(s => {
+    agentSkills[s.agent_id] = agentSkills[s.agent_id] || [];
+    if (!agentSkills[s.agent_id].find(x => x.skill_id === s.skill_id))
+      agentSkills[s.agent_id].push(s);
+  });
+
   const known = Object.fromEntries(agents.map(a => [a.agent_id, a]));
-  const svg = $("constellation");
-  for (const id of AGENTS) {
-    const target = svg.querySelector(`g.node[data-id="${id}"] circle`);
-    if (!target) continue;
-    if (known[id]?.status === "processing") {
-      target.setAttribute("stroke", "rgba(182,244,255,1)");
-      target.setAttribute("fill", "rgba(95,220,255,0.4)");
-    } else {
-      target.setAttribute("stroke", "rgba(95,220,255,0.4)");
-      target.setAttribute("fill", "rgba(95,220,255,0.18)");
-    }
-  }
-}
+  const container = $("agentCubes");
 
-// ─── Polling ────────────────────────────────────────────────
-async function tick() {
-  try {
-    const [agents, activity, projects, cost] = await Promise.all([
-      api("GET","/api/agents"),
-      api("GET","/api/activity?limit=120"),
-      api("GET","/api/projects"),
-      api("GET","/api/cost"),
-    ]);
-
-    updateNodeStatuses(agents);
-
-    // Flash edges + narrate each new signal
-    const newOnes = activity.slice(lastSeenSignal);
-    lastSeenSignal = activity.length;
-    for (const s of newOnes) {
-      flashEdge(s.from, s.to);
-      narrate(s);
+  const allIds = ["ARIYA", ...AGENT_NAMES];
+  allIds.forEach(id => {
+    const a = known[id] || { status: "idle", current_task: "" };
+    let cube = container.querySelector(`.cube[data-id="${id}"]`);
+    if (!cube) {
+      cube = document.createElement("div");
+      cube.className = "cube";
+      cube.dataset.id = id;
+      cube.innerHTML = `
+        <div class="cube-head">
+          <div class="cube-dot"></div>
+          <div class="cube-name">${id}</div>
+        </div>
+        <div class="cube-role">${AGENT_ROLES[id] || ""}</div>
+        <div class="cube-task"></div>
+        <div class="cube-detail">
+          <div><b>Model</b> ${AGENT_MODELS[id] || "—"}</div>
+          <div style="margin-top:6px"><b>Skills</b></div>
+          <div class="cube-skills-list"></div>
+        </div>`;
+      cube.addEventListener("click", () => {
+        SFX.click();
+        if (openCube && openCube !== cube) openCube.classList.remove("open", "active");
+        cube.classList.toggle("open");
+        cube.classList.toggle("active", cube.classList.contains("open"));
+        openCube = cube.classList.contains("open") ? cube : null;
+      });
+      container.appendChild(cube);
     }
 
-    // Update drawer panes
-    renderDrawer(agents, activity, projects, cost);
+    // Update live state
+    cube.classList.toggle("processing", a.status === "processing");
+    cube.querySelector(".cube-task").textContent = a.current_task || "—";
 
-    // Reflect "thinking" on the orb when any agent is processing
-    const busy = agents.some(a => a.status === "processing");
-    orb().classList.toggle("thinking", busy);
-  } catch (e) { /* silent */ }
+    // Skill chips (once)
+    const skillsList = cube.querySelector(".cube-skills-list");
+    if (skillsList && skillsList.childElementCount === 0) {
+      (agentSkills[id] || []).forEach(s => {
+        const chip = document.createElement("span");
+        chip.className = "cube-skill";
+        chip.textContent = s.name;
+        skillsList.appendChild(chip);
+      });
+    }
+  });
 }
+
+// ══════════════════════════════════════════════════════
+//  SIGNAL NARRATION
+// ══════════════════════════════════════════════════════
+let lastSeen = 0;
+const sigColors = {
+  TASK: "rgba(95,216,255,0.85)",
+  FEEDBACK: "rgba(255,166,77,0.85)",
+  APPROVAL: "rgba(76,255,170,0.85)",
+  ALERT: "rgba(255,107,107,0.85)",
+  CONTRACT_UPDATE: "rgba(180,130,255,0.85)",
+};
 
 function narrate(s) {
-  if (s.from === "ARIYA" && s.type === "TASK") {
-    event(`<b>${s.from}</b> → ${s.to}  ·  ${s.title || s.type}`);
-  } else if (s.type === "APPROVAL") {
-    event(`<b>${s.from}</b> approved → ${s.to}  ·  ${s.title || ""}`);
-  } else if (s.type === "FEEDBACK") {
-    event(`<b>${s.from}</b> requested changes → ${s.to}`);
+  const col = sigColors[s.type] || "rgba(95,216,255,0.7)";
+  flashEdge(s.from, s.to, col);
+  SFX.agent();
+
+  if (s.type === "APPROVAL") {
+    SFX.approve();
+    addEvent(`<b>${s.from}</b> ✓ → ${s.to} · ${s.title || ""}`);
   } else if (s.type === "ALERT") {
-    event(`<b>${s.from}</b> ALERT → ${s.to}`);
+    SFX.alert();
+    addEvent(`⚠ <b>${s.from}</b> → ${s.to}`);
   } else if (s.type === "CONTRACT_UPDATE") {
-    event(`contract sync: <b>${s.from}</b> → ${s.to}`);
+    addEvent(`🔗 contract sync <b>${s.from}</b> → ${s.to}`);
+  } else if (s.from === "ARIYA") {
+    addEvent(`<b>ARIYA</b> → ${s.to} · ${s.title || s.type}`);
   } else {
-    event(`${s.from} → ${s.to}  ·  ${s.title || s.type}`);
+    addEvent(`${s.from} → ${s.to} · ${s.title || s.type}`);
   }
 }
 
-// ─── Drawer ─────────────────────────────────────────────────
-function renderDrawer(agents, activity, projects, cost) {
-  $("pane-agents").innerHTML = agents.map(a =>
-    `<div class="agent-row">
-      <span class="name">${a.agent_id}</span>
-      <span class="status-tag ${a.status}">${a.status}</span>
-      <div style="color:var(--dim);font-size:11px;margin-top:2px">${a.current_task || "—"}</div>
-    </div>`
-  ).join("") || "<div style='color:var(--dim)'>no agents online</div>";
-
-  $("pane-signals").innerHTML = activity.slice(-50).reverse().map(s =>
-    `<div class="signal-row">
-      <span>${(s.t||"").substr(11,8)}</span>
-      <span class="from">${s.from}</span> →
-      <span class="to">${s.to}</span>
-      &nbsp;<span style="color:var(--warn)">${s.type}</span>
-      &nbsp;${s.title || ""}
-    </div>`
-  ).join("") || "<div style='color:var(--dim)'>no signals yet</div>";
-
-  $("pane-projects").innerHTML = projects.map(p => {
-    const ap = p.approvals || {};
-    const gates = GATES.map(g =>
-      `<button class="gate-btn ${ap[g] ? "approved" : ""}"
-               onclick="approveGate('${p.project_id}','${g}')">${g}</button>`
-    ).join("");
-    return `<div class="project-row">
-      <div class="pname">${p.name}</div>
-      <div class="phase">${p.phase}</div>
-      <div class="gates">${gates}</div>
-    </div>`;
-  }).join("") || "<div style='color:var(--dim)'>no projects yet</div>";
-
-  $("pane-cost").innerHTML = `
-    <div class="cost-row">total <b style="color:var(--accent)">$${(cost.total_usd||0).toFixed(4)}</b></div>
-    <div class="cost-row">tokens in: ${cost.tokens_in}</div>
-    <div class="cost-row">tokens out: ${cost.tokens_out}</div>
-    <div style="margin-top:12px;color:var(--dim);font-size:11px;letter-spacing:2px">BY AGENT</div>
-    ${Object.entries(cost.by_agent || {}).map(([k,v]) =>
-      `<div class="cost-row">${k} · <span style="color:var(--accent)">$${v.toFixed(4)}</span></div>`).join("")}
-  `;
-}
-
-window.approveGate = async (pid, gate) => {
-  await api("POST", `/api/projects/${pid}/approve/${gate}`);
-  speak(`Gate "${gate}" approved.`);
+// ══════════════════════════════════════════════════════
+//  INTEGRATIONS
+// ══════════════════════════════════════════════════════
+const INT_CONFIG = {
+  git:     { label: "GIT", color: "#f05033", fields: [{ key:"repo", label:"Repository URL" }, { key:"token", label:"Personal Access Token" }] },
+  clickup: { label: "CLICKUP", color: "#7b68ee", fields: [{ key:"team", label:"Team ID" }, { key:"token", label:"API Token" }] },
+  ide:     { label: "IDE / CURSOR", color: "#00b4d8", fields: [{ key:"ws", label:"WebSocket endpoint", placeholder:"ws://localhost:3456" }] },
 };
 
-// ─── Tabs ───────────────────────────────────────────────────
-document.querySelectorAll(".drawer-tabs .tab").forEach(btn => {
-  btn.addEventListener("click", () => {
-    document.querySelectorAll(".drawer-tabs .tab").forEach(t => t.classList.remove("active"));
-    document.querySelectorAll(".tab-pane").forEach(p => p.classList.remove("active"));
-    btn.classList.add("active");
-    $(`pane-${btn.dataset.tab}`).classList.add("active");
+function dotConnected(id) {
+  return !!localStorage.getItem(`int_${id}_token`) || !!localStorage.getItem(`int_${id}_ws`);
+}
+
+function refreshIntDots() {
+  Object.keys(INT_CONFIG).forEach(id => {
+    const el = $(`int-${id}`);
+    if (!el) return;
+    el.classList.toggle("connected", dotConnected(id));
   });
-});
-$("openDrawer").onclick = () => $("drawer").classList.add("open");
-$("closeDrawer").onclick = () => $("drawer").classList.remove("open");
-
-// ─── Conversation entry ─────────────────────────────────────
-async function handleUserInput(text) {
-  $("hint").classList.add("hide");
-  speak(text, "user");
-
-  // Light intent parsing — anything that looks like a brief becomes a project.
-  const lower = text.toLowerCase();
-  if (lower.startsWith("approve ")) {
-    // approve <gate> [<projectId>]
-    const parts = text.split(/\s+/);
-    const gate = parts[1];
-    const projects = await api("GET", "/api/projects");
-    const p = parts[2] ? projects.find(x => x.project_id.startsWith(parts[2])) : projects[0];
-    if (!p) { speak("I don't see a matching project."); return; }
-    await api("POST", `/api/projects/${p.project_id}/approve/${gate}`);
-    speak(`Approved "${gate}" on ${p.name}.`);
-    return;
-  }
-  if (lower === "status" || lower === "מה המצב" || lower === "report") {
-    const projects = await api("GET","/api/projects");
-    const cost = await api("GET","/api/cost");
-    speak(
-      `${projects.length} project(s) in flight.\n` +
-      projects.slice(0,5).map(p => `• ${p.name} — ${p.phase}`).join("\n") +
-      `\nSpend so far: $${(cost.total_usd||0).toFixed(4)}.`
-    );
-    return;
-  }
-
-  // Default: treat as a brief
-  const guessName = text.split(/[.,\n]/)[0].slice(0, 40) || "New Project";
-  orb().classList.add("thinking");
-  speak("Acknowledged. Decomposing the brief and waking the agent network.");
-  const res = await api("POST", "/api/projects", { name: guessName, brief: text });
-  if (res.error) { speak("Something went wrong: " + res.error); return; }
-  speak(`Project ${res.project_id.slice(0,8)} initiated. Routing to SCOUT now.`);
 }
 
-$("send").onclick = () => {
-  const v = $("input").value.trim();
-  if (!v) return;
-  $("input").value = "";
-  handleUserInput(v);
+function openIntModal(intId) {
+  const cfg = INT_CONFIG[intId];
+  if (!cfg) return;
+  $("intModalTitle").textContent = cfg.label;
+  const body = $("intModalBody");
+  body.innerHTML = cfg.fields.map(f => `
+    <div class="int-field">
+      <label>${f.label}</label>
+      <input type="text" id="int_inp_${f.key}"
+             value="${localStorage.getItem(`int_${intId}_${f.key}`) || ""}"
+             placeholder="${f.placeholder || ""}"/>
+    </div>`).join("") +
+    `<button class="int-save" onclick="saveInt('${intId}')">CONNECT</button>
+     <div class="int-status-line" id="intStatusLine"></div>`;
+  $("intModal").classList.remove("hidden");
+  SFX.click();
+}
+window.saveInt = function(intId) {
+  const cfg = INT_CONFIG[intId];
+  cfg.fields.forEach(f => {
+    const val = document.getElementById(`int_inp_${f.key}`)?.value || "";
+    localStorage.setItem(`int_${intId}_${f.key}`, val);
+  });
+  $("intStatusLine").className = "int-status-line ok";
+  $("intStatusLine").textContent = "✓ Saved.";
+  refreshIntDots();
+  SFX.approve();
+  const el = $(`int-${intId}`);
+  if (el) el.classList.add("connected");
 };
-$("input").addEventListener("keydown", (e) => {
-  if (e.key === "Enter") $("send").click();
+
+Object.keys(INT_CONFIG).forEach(id => {
+  $(`int-${id}`)?.addEventListener("click", () => openIntModal(id));
 });
+$("intModalClose").addEventListener("click", () => $("intModal").classList.add("hidden"));
+$("intModal").addEventListener("click", e => { if (e.target === $("intModal")) $("intModal").classList.add("hidden"); });
 
-orb().addEventListener("click", () => $("input").focus());
+// ══════════════════════════════════════════════════════
+//  COMMAND PROCESSING
+// ══════════════════════════════════════════════════════
+async function submit(text) {
+  SFX.send();
+  addMsg(text, "user");
+  $("chatInput").value = "";
+  $("orb").classList.add("thinking");
 
-// ─── WebSocket connection state ─────────────────────────────
+  const lower = text.toLowerCase().trim();
+
+  // status / report
+  if (lower === "status" || lower === "report" || lower === "מה המצב") {
+    const [projects, cost] = await Promise.all([api("GET","/api/projects"), api("GET","/api/cost")]);
+    const summary = `${projects.length} project(s) running. Spend: $${(cost.total_usd||0).toFixed(4)}.\n` +
+      projects.slice(0,5).map(p=>`• ${p.name} — ${p.phase}`).join("\n");
+    ariyaSay(summary);
+    $("orb").classList.remove("thinking");
+    return;
+  }
+
+  // approve <gate> [id]
+  const approveMatch = lower.match(/^approve\s+(\w+)(?:\s+(\S+))?/);
+  if (approveMatch) {
+    const gate = approveMatch[1], pid_hint = approveMatch[2];
+    const projects = await api("GET","/api/projects");
+    const p = pid_hint
+      ? projects.find(x => x.project_id.startsWith(pid_hint))
+      : projects[0];
+    if (!p) { ariyaSay("No matching project found."); $("orb").classList.remove("thinking"); return; }
+    await api("POST", `/api/projects/${p.project_id}/approve/${gate}`);
+    ariyaSay(`Gate "${gate}" approved on ${p.name}.`);
+    SFX.approve();
+    $("orb").classList.remove("thinking");
+    return;
+  }
+
+  // treat as brief
+  const name = text.split(/[.,\n]/)[0].slice(0, 48) || "New Project";
+  ariyaSay("Acknowledged. Decomposing the brief and activating the agent network.");
+  const res = await api("POST", "/api/projects", { name, brief: text });
+  if (res.error) { ariyaSay("An error occurred: " + res.error); }
+  else { ariyaSay(`Project ${res.project_id?.slice(0,8)} initiated — routing to SCOUT.`); }
+  $("orb").classList.remove("thinking");
+}
+
+$("sendBtn").addEventListener("click", () => {
+  const v = $("chatInput").value.trim();
+  if (v) submit(v);
+});
+$("chatInput").addEventListener("keydown", e => {
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("sendBtn").click(); }
+});
+$("orb").addEventListener("click", () => $("chatInput").focus());
+
+// ══════════════════════════════════════════════════════
+//  POLLING + WEBSOCKET
+// ══════════════════════════════════════════════════════
+async function tick() {
+  try {
+    const [agents, activity, skills] = await Promise.all([
+      api("GET","/api/agents"),
+      api("GET","/api/activity?limit=200"),
+      api("GET","/api/skills"),
+    ]);
+    buildCubes(agents, skills);
+    const newOnes = activity.slice(lastSeen);
+    lastSeen = activity.length;
+    newOnes.forEach(narrate);
+    const busy = agents.some(a => a.status === "processing");
+    $("orb").classList.toggle("thinking", busy);
+  } catch (_) {}
+}
+
 function connectWS() {
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
   try {
     const ws = new WebSocket(`${proto}//${location.host}/api/ws`);
-    ws.onopen = () => $("status").classList.add("live");
-    ws.onclose = () => { $("status").classList.remove("live"); setTimeout(connectWS, 2000); };
+    ws.onopen  = () => $("wsStatus").classList.add("live");
+    ws.onclose = () => { $("wsStatus").classList.remove("live"); setTimeout(connectWS, 2500); };
     ws.onmessage = () => tick();
   } catch (_) {}
 }
 
-// ─── Boot ───────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════
+//  BOOT
+// ══════════════════════════════════════════════════════
 function boot() {
   buildConstellation();
-  window.addEventListener("resize", buildConstellation);
-  speak("ARIYA online. Speak when ready.", "ariya");
+  window.addEventListener("resize", () => { buildConstellation(); });
+  initTTS();
+  initSTT();
+  refreshIntDots();
+  SFX.boot();
+  setTimeout(() => ariyaSay("ARIYA online. Neural network standing by. Speak your brief."), 600);
   tick();
-  setInterval(tick, 3000);
+  setInterval(tick, 3500);
   connectWS();
 }
 boot();

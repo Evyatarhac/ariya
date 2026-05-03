@@ -1,65 +1,82 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
+<meta charset="UTF-8"/>
 <title>ARIYA</title>
-<link rel="stylesheet" href="/static/styles.css" />
+<link rel="stylesheet" href="/static/styles.css"/>
 </head>
 <body>
 
-<!-- Minimal top bar -->
-<div class="topbar">
-  <div class="brand-min">A · R · I · Y · A</div>
-  <div class="status" id="status">●</div>
-</div>
+<!-- Top bar -->
+<header class="topbar">
+  <div class="brand">A · R · I · Y · A</div>
+  <div class="integrations">
+    <div class="int-dot" id="int-git"    data-label="Git"     title="Git">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="5" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="19" r="2"/><line x1="12" y1="7" x2="12" y2="14"/><line x1="12" y1="14" x2="5" y2="17"/><line x1="12" y1="14" x2="19" y2="17"/></svg>
+      <span>Git</span>
+    </div>
+    <div class="int-dot" id="int-clickup" data-label="ClickUp" title="ClickUp">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 9 12 3 20 9"/><rect x="4" y="9" width="16" height="12" rx="2"/><line x1="9" y1="21" x2="9" y2="14"/><line x1="15" y1="21" x2="15" y2="14"/></svg>
+      <span>ClickUp</span>
+    </div>
+    <div class="int-dot" id="int-ide" data-label="IDE" title="Cursor / VS Code">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+      <span>IDE</span>
+    </div>
+  </div>
+  <div class="ws-status" id="wsStatus">●</div>
+</header>
 
-<!-- The core: a single Jarvis-style AI orb -->
-<div class="stage" id="stage">
+<!-- Main stage -->
+<div class="stage">
 
-  <!-- Agent constellation — orbits around the orb. Quiet by default; lights up when communicating. -->
+  <!-- Agent constellation SVG (behind orb) -->
   <svg id="constellation" class="constellation"></svg>
 
-  <!-- The orb -->
-  <div class="orb-wrap" id="orbWrap">
-    <div class="orb">
+  <!-- Central orb -->
+  <div class="orb-shell" id="orbShell">
+    <div class="orb" id="orb">
       <div class="ring r1"></div>
       <div class="ring r2"></div>
       <div class="ring r3"></div>
-      <div class="core"></div>
-      <div class="orb-label">ARIYA</div>
+      <div class="core" id="core"></div>
+      <div class="orb-name">ARIYA</div>
     </div>
-    <div class="hint" id="hint">— click to speak —</div>
   </div>
 
-  <!-- Conversation strip -->
-  <div class="conversation" id="conv"></div>
-
-  <!-- Input -->
-  <div class="composer">
-    <input id="input" placeholder="ARIYA, what should we build today?" autocomplete="off" />
-    <button id="send" title="Send">→</button>
+  <!-- Chat strip (fixed-bottom, centre) -->
+  <div class="chat-area">
+    <div class="messages" id="messages"></div>
+    <div class="composer">
+      <button class="mic-btn" id="micBtn" title="Hold to speak">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="9" y="2" width="6" height="12" rx="3"/>
+          <path d="M5 10a7 7 0 0 0 14 0"/>
+          <line x1="12" y1="17" x2="12" y2="22"/>
+        </svg>
+      </button>
+      <input id="chatInput" placeholder="ARIYA, what should we build today?" autocomplete="off"/>
+      <button class="send-btn" id="sendBtn">→</button>
+      <button class="tts-btn" id="ttsToggle" title="Toggle voice response">🔊</button>
+    </div>
   </div>
 
 </div>
 
-<!-- Slide-out details drawer (only shown when user asks for them) -->
-<aside class="drawer" id="drawer">
-  <div class="drawer-tabs">
-    <button class="tab active" data-tab="agents">Agents</button>
-    <button class="tab" data-tab="signals">Signals</button>
-    <button class="tab" data-tab="projects">Projects</button>
-    <button class="tab" data-tab="cost">Cost</button>
-    <button class="close" id="closeDrawer">×</button>
-  </div>
-  <div class="drawer-body">
-    <div class="tab-pane active" id="pane-agents"></div>
-    <div class="tab-pane" id="pane-signals"></div>
-    <div class="tab-pane" id="pane-projects"></div>
-    <div class="tab-pane" id="pane-cost"></div>
-  </div>
+<!-- Right panel: agent cubes -->
+<aside class="agent-rail" id="agentRail">
+  <div class="rail-label">AGENTS</div>
+  <div id="agentCubes" class="agent-cubes"></div>
 </aside>
 
-<button class="drawer-toggle" id="openDrawer" title="System detail">⋯</button>
+<!-- Integration modals (shown on click) -->
+<div class="int-modal hidden" id="intModal">
+  <div class="int-modal-box">
+    <button class="int-modal-close" id="intModalClose">×</button>
+    <h3 id="intModalTitle"></h3>
+    <div id="intModalBody"></div>
+  </div>
+</div>
 
 <script src="/static/app.js"></script>
 </body>
