@@ -283,7 +283,8 @@ function buildMeshLegend() {
 // ══════════════════════════════════════════════════════
 //  NEURAL MESH (canvas particle system)
 // ══════════════════════════════════════════════════════
-let _mesh = { ctx: null, w: 0, h: 0, particles: [], glows: [], synapses: [], lastResting: 0 };
+let _mesh = { ctx: null, w: 0, h: 0, particles: [], glows: [], synapses: [],
+              lastResting: 0, lastScan: 0, lastChatter: 0 };
 
 function setupMeshCanvas() {
   const cv = $("mesh"); if (!cv) return;
@@ -347,18 +348,60 @@ function meshLoop(ts) {
     ctx.stroke();
   }
 
-  // 2) Resting pulse — random faint particle every ~1.8s
-  if (ts - _mesh.lastResting > 1800) {
+  // 2) Resting pulse — random faint particle every ~600ms
+  if (ts - _mesh.lastResting > 600) {
     _mesh.lastResting = ts;
     if (_mesh.synapses.length) {
       const s = _mesh.synapses[Math.floor(Math.random() * _mesh.synapses.length)];
       const aId = Object.keys(NODES).find(k => NODES[k] === s.a) || "ARIYA";
       const bId = Object.keys(NODES).find(k => NODES[k] === s.b) || "ARIYA";
-      // weak particle (low alpha)
+      // direction randomized
+      const reverse = Math.random() < 0.5;
       _mesh.particles.push({
-        ax: s.a.x, ay: s.a.y, bx: s.b.x, by: s.b.y,
-        t: 0, speed: 0.008, cFrom: agentColor(aId), cTo: agentColor(bId),
+        ax: reverse ? s.b.x : s.a.x, ay: reverse ? s.b.y : s.a.y,
+        bx: reverse ? s.a.x : s.b.x, by: reverse ? s.a.y : s.b.y,
+        t: 0, speed: 0.010 + Math.random() * 0.006,
+        cFrom: agentColor(reverse ? bId : aId), cTo: agentColor(reverse ? aId : bId),
         type: "RESTING", trail: [], faint: true,
+      });
+    }
+  }
+
+  // 2b) ARIYA scan pulse — every ~4s emit a wave to ALL agents simultaneously
+  if (ts - _mesh.lastScan > 4200) {
+    _mesh.lastScan = ts;
+    const ariya = NODES["ARIYA"];
+    if (ariya) {
+      AGENT_NAMES.forEach((id, i) => {
+        const target = NODES[id];
+        if (!target) return;
+        // stagger slightly per agent
+        setTimeout(() => {
+          _mesh.particles.push({
+            ax: ariya.x, ay: ariya.y, bx: target.x, by: target.y,
+            t: 0, speed: 0.018,
+            cFrom: agentColor("ARIYA"), cTo: agentColor(id),
+            type: "SCAN", trail: [], scan: true,
+          });
+          _mesh.glows.push({ x: ariya.x, y: ariya.y, t: 0, color: agentColor("ARIYA") });
+        }, i * 60);
+      });
+    }
+  }
+
+  // 2c) Inter-agent chatter — every ~900ms a medium particle between two non-ARIYA agents
+  if (ts - _mesh.lastChatter > 900) {
+    _mesh.lastChatter = ts;
+    const a = AGENT_NAMES[Math.floor(Math.random() * AGENT_NAMES.length)];
+    let b = AGENT_NAMES[Math.floor(Math.random() * AGENT_NAMES.length)];
+    if (b === a) b = AGENT_NAMES[(AGENT_NAMES.indexOf(a) + 1) % AGENT_NAMES.length];
+    const pa = NODES[a], pb = NODES[b];
+    if (pa && pb) {
+      _mesh.particles.push({
+        ax: pa.x, ay: pa.y, bx: pb.x, by: pb.y,
+        t: 0, speed: 0.014,
+        cFrom: agentColor(a), cTo: agentColor(b),
+        type: "CHATTER", trail: [],
       });
     }
   }
@@ -386,10 +429,11 @@ function meshLoop(ts) {
     // Head
     if (!p.faint) {
       const headColor = blendColors(p.cFrom, p.cTo, k);
-      ctx.shadowBlur = 12;
+      const baseRadius = p.scan ? 3.4 : 2.6;
+      ctx.shadowBlur = p.scan ? 18 : 12;
       ctx.shadowColor = headColor;
       ctx.fillStyle = headColor;
-      ctx.beginPath(); ctx.arc(x, y, 2.6, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(x, y, baseRadius, 0, Math.PI * 2); ctx.fill();
       ctx.shadowBlur = 0;
     } else {
       ctx.fillStyle = blendColors(p.cFrom, p.cTo, k).replace(/[\d.]+\)$/, "0.35)");

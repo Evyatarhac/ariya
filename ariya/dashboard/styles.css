@@ -140,16 +140,86 @@ html, body {
 @keyframes spin { to { transform: rotate(360deg); } }
 
 .core {
+  position: relative;
   width: 100px; height: 100px; border-radius: 50%;
   background: radial-gradient(circle at 30% 22%, var(--hot), var(--accent) 38%, #1a8eb5 68%, #041424 100%);
   box-shadow: 0 0 28px var(--glow), 0 0 80px rgba(95,216,255,0.2), inset 0 0 28px rgba(0,0,0,0.5);
-  animation: breathe 4.5s ease-in-out infinite;
+  animation: breathe 3.6s ease-in-out infinite;
   will-change: transform, box-shadow;
+  overflow: hidden;
 }
 @keyframes breathe {
-  0%,100% { transform: scale(1);    box-shadow: 0 0 28px var(--glow), 0 0 80px rgba(95,216,255,0.2),  inset 0 0 28px rgba(0,0,0,0.5); }
-  50%      { transform: scale(1.05); box-shadow: 0 0 40px var(--glow), 0 0 110px rgba(95,216,255,0.3), inset 0 0 28px rgba(0,0,0,0.5); }
+  0%,100% { transform: scale(1);    box-shadow: 0 0 28px var(--glow), 0 0 80px rgba(95,216,255,0.22),  inset 0 0 28px rgba(0,0,0,0.5); }
+  50%      { transform: scale(1.07); box-shadow: 0 0 50px var(--hot),  0 0 130px rgba(95,216,255,0.35), inset 0 0 32px rgba(0,0,0,0.55); }
 }
+
+/* Plasma swirl inside the core */
+.core .plasma {
+  position: absolute; inset: -10%;
+  background:
+    radial-gradient(circle at 30% 30%, rgba(194,240,255,0.85) 0%, transparent 28%),
+    radial-gradient(circle at 70% 65%, rgba(95,216,255,0.7) 0%, transparent 32%),
+    radial-gradient(circle at 50% 80%, rgba(26,142,181,0.6) 0%, transparent 35%);
+  filter: blur(6px);
+  mix-blend-mode: screen;
+  animation: plasmaSwirl 9s linear infinite;
+  pointer-events: none;
+}
+@keyframes plasmaSwirl {
+  0%   { transform: rotate(0deg)   scale(1.0); }
+  50%  { transform: rotate(180deg) scale(1.12); }
+  100% { transform: rotate(360deg) scale(1.0); }
+}
+
+/* Iris scanline (subtle horizontal sweep) */
+.core .iris {
+  position: absolute; inset: 0; border-radius: 50%;
+  background: linear-gradient(180deg, transparent 45%, rgba(194,240,255,0.18) 50%, transparent 55%);
+  animation: irisScan 2.4s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes irisScan {
+  0%,100% { transform: translateY(-30%); opacity: 0.0; }
+  50%      { transform: translateY(30%);  opacity: 0.9; }
+}
+
+/* Energy waves emanating outward */
+.wave {
+  position: absolute; inset: 0; border-radius: 50%;
+  border: 1px solid rgba(95,216,255,0.5);
+  pointer-events: none;
+  opacity: 0;
+  animation: waveOut 3.6s ease-out infinite;
+  will-change: transform, opacity;
+}
+.w1 { animation-delay: 0s;    }
+.w2 { animation-delay: 1.2s;  }
+.w3 { animation-delay: 2.4s;  }
+@keyframes waveOut {
+  0%   { transform: scale(0.55); opacity: 0.0; border-color: rgba(194,240,255,0.7); }
+  15%  {                          opacity: 0.6; }
+  100% { transform: scale(1.7);  opacity: 0.0; border-color: rgba(95,216,255,0.0);  }
+}
+
+/* Orbital dots circling the core */
+.orbital {
+  position: absolute; inset: 0; border-radius: 50%;
+  pointer-events: none;
+  animation: orbit 9s linear infinite;
+}
+.orbital .dot {
+  position: absolute; top: -3px; left: 50%;
+  width: 6px; height: 6px; margin-left: -3px;
+  border-radius: 50%;
+  background: var(--hot);
+  box-shadow: 0 0 10px var(--hot), 0 0 22px var(--accent);
+}
+.o1 { inset: 14px; animation-duration: 6.5s; }
+.o2 { inset: 6px;  animation-duration: 11s; animation-direction: reverse; }
+.o2 .dot { background: #4cffaa; box-shadow: 0 0 10px #4cffaa, 0 0 22px rgba(76,255,170,0.6); }
+.o3 { inset: 22px; animation-duration: 14s; }
+.o3 .dot { background: #ff6bd6; box-shadow: 0 0 10px #ff6bd6, 0 0 22px rgba(255,107,214,0.6); }
+@keyframes orbit { to { transform: rotate(360deg); } }
 .orb.thinking .core { animation: pulse 0.85s ease-in-out infinite; }
 .orb.speaking .core {
   animation: pulse 0.5s ease-in-out infinite;
