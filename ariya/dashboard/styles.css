@@ -180,13 +180,6 @@ html, body {
   border: 1px solid rgba(95,216,255,0.12); color: var(--hot);
   backdrop-filter: blur(8px);
 }
-.msg.event {
-  align-self: center;
-  font-size: 10.5px; color: var(--dim);
-  letter-spacing: 1.5px; padding: 3px 0;
-  background: none; border: none; max-width: 100%;
-}
-.msg.event b { color: var(--accent); font-weight: 500; }
 
 .composer {
   display: flex; align-items: center; gap: 8px;

@@ -142,14 +142,6 @@ function addMsg(text, role) {
   msgs.scrollTop = msgs.scrollHeight;
   while (msgs.children.length > 60) msgs.removeChild(msgs.firstChild);
 }
-function addEvent(html) {
-  const d = document.createElement("div");
-  d.className = "msg event";
-  d.innerHTML = html;
-  msgs.appendChild(d);
-  msgs.scrollTop = msgs.scrollHeight;
-  while (msgs.children.length > 60) msgs.removeChild(msgs.firstChild);
-}
 
 function ariyaSay(text) {
   $("orb").classList.add("speaking");
@@ -324,20 +316,8 @@ function narrate(s) {
   const col = sigColors[s.type] || "rgba(95,216,255,0.7)";
   flashEdge(s.from, s.to, col);
   SFX.agent();
-
-  if (s.type === "APPROVAL") {
-    SFX.approve();
-    addEvent(`<b>${s.from}</b> ✓ → ${s.to} · ${s.title || ""}`);
-  } else if (s.type === "ALERT") {
-    SFX.alert();
-    addEvent(`⚠ <b>${s.from}</b> → ${s.to}`);
-  } else if (s.type === "CONTRACT_UPDATE") {
-    addEvent(`🔗 contract sync <b>${s.from}</b> → ${s.to}`);
-  } else if (s.from === "ARIYA") {
-    addEvent(`<b>ARIYA</b> → ${s.to} · ${s.title || s.type}`);
-  } else {
-    addEvent(`${s.from} → ${s.to} · ${s.title || s.type}`);
-  }
+  if (s.type === "APPROVAL") SFX.approve();
+  if (s.type === "ALERT")    SFX.alert();
 }
 
 // ══════════════════════════════════════════════════════
