@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>ARIYA — Neural Command</title>
+<link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="logo">◉</span>
+    <span class="title">A R I Y A</span>
+    <span class="sub">Autonomous R&amp;D Intelligence Yielding Architecture</span>
+  </div>
+  <div class="status" id="status">connecting…</div>
+</header>
+
+<main class="grid">
+  <section class="panel terminal">
+    <h2>Command Terminal</h2>
+    <textarea id="brief" rows="4" placeholder="ARIYA, build me a SaaS dashboard for restaurant orders. React + Node + PostgreSQL. Production-ready."></textarea>
+    <div class="row">
+      <input id="pname" placeholder="Project name" />
+      <button id="launch">⟶ Launch Project</button>
+    </div>
+    <div id="reply" class="reply"></div>
+  </section>
+
+  <section class="panel agents">
+    <h2>Agent Neural Grid</h2>
+    <div id="agents" class="agent-grid"></div>
+  </section>
+
+  <section class="panel projects">
+    <h2>Projects</h2>
+    <div id="projects"></div>
+  </section>
+
+  <section class="panel activity">
+    <h2>Neural Signal Flow</h2>
+    <div id="activity" class="activity-list"></div>
+  </section>
+</main>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
