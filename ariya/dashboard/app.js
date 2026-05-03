@@ -24,8 +24,22 @@ async function api(method, path, body) {
 let actx = null;
 function getACtx() {
   if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
+  // Browsers suspend AudioContext until a user gesture — resume on every call
+  if (actx.state === "suspended") actx.resume();
   return actx;
 }
+// Unlock audio on first user interaction, then play boot sound
+let _audioUnlocked = false;
+function unlockAudio() {
+  if (_audioUnlocked) return;
+  _audioUnlocked = true;
+  getACtx();
+  SFX.boot();
+  document.removeEventListener("click", unlockAudio);
+  document.removeEventListener("keydown", unlockAudio);
+}
+document.addEventListener("click", unlockAudio);
+document.addEventListener("keydown", unlockAudio);
 function tone(freq, dur = 0.08, vol = 0.12, type = "sine", delay = 0) {
   try {
     const ctx = getACtx();
@@ -525,7 +539,6 @@ function boot() {
   initSTT();
   startClapListener();
   refreshIntDots();
-  SFX.boot();
   setTimeout(() => ariyaSay("ARIYA online. Neural network standing by. Speak your brief."), 600);
   tick();
   setInterval(tick, 3500);
