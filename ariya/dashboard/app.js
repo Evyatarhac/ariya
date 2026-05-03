@@ -15,6 +15,11 @@ async function api(method, path, body) {
     method, headers: h,
     body: body ? JSON.stringify(body) : undefined,
   });
+  if (!r.ok) {
+    const err = new Error(`HTTP ${r.status} ${path}`);
+    err.status = r.status; err.path = path;
+    throw err;
+  }
   return r.json();
 }
 
@@ -779,7 +784,14 @@ async function submit(text) {
       ariyaSay(r.reply || "Standing by.");
     }
   } catch (e) {
-    ariyaSay("Connection to my brain failed: " + (e.message || e));
+    if (e.status === 404) {
+      const msg = "Backend is running OLD code (no /api/chat endpoint). Please RESTART the server: Ctrl+C then re-run uvicorn.";
+      ariyaSay(msg);
+      showToast("error", "Server outdated", "Restart uvicorn to load /api/chat", 8000);
+    } else {
+      ariyaSay("Brain offline: " + (e.message || e));
+      showToast("error", "Chat error", e.message || String(e), 5000);
+    }
   }
   $("orb").classList.remove("thinking");
 }
