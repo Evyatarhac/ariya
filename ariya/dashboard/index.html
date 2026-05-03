@@ -27,6 +27,21 @@
   <div class="ws-status" id="wsStatus">●</div>
 </header>
 
+<!-- HUD bar (live system telemetry) -->
+<div class="hud" id="hud">
+  <div class="hud-cell"><span class="hud-k">PROJECTS</span><span class="hud-v" id="hudProjects">0</span></div>
+  <div class="hud-cell"><span class="hud-k">PHASE</span><span class="hud-v" id="hudPhase">—</span></div>
+  <div class="hud-cell"><span class="hud-k">SIGNALS</span><span class="hud-v" id="hudSignals">0/min</span></div>
+  <div class="hud-cell"><span class="hud-k">COST</span><span class="hud-v" id="hudCost">$0.0000</span></div>
+  <div class="hud-cell"><span class="hud-k">AGENTS</span><span class="hud-v" id="hudAgents">0 active</span></div>
+</div>
+
+<!-- Phase tracker strip -->
+<div class="phase-strip" id="phaseStrip"></div>
+
+<!-- Toast stack -->
+<div class="toast-stack" id="toastStack"></div>
+
 <!-- Main stage -->
 <div class="stage">
 

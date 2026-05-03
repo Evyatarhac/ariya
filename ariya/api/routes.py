@@ -151,13 +151,18 @@ ARIYA_SYSTEM_PROMPT = (
 def _classify_intent(text: str) -> str:
     """Classify user input → 'project' (build something) | 'command' | 'chat'."""
     t = text.lower().strip()
-    if t in ("status", "report", "מה המצב"): return "command"
-    if t.startswith("approve "): return "command"
-    # project signals: imperative build verbs
-    triggers = ["build ", "create ", "make ", "develop ", "design ", "תבנה",
-                "תפתח", "תעצב", "ship ", "launch a ", "i want to build",
-                "i need an app", "a website", "a system that"]
-    if any(tr in t for tr in triggers) and len(text.split()) >= 4:
+    if t in ("status", "report", "מה המצב", "סטטוס", "דוח"): return "command"
+    if t.startswith("approve ") or t.startswith("אשר "): return "command"
+    # English build verbs
+    en_triggers = ["build ", "create ", "make ", "develop ", "design ",
+                   "ship ", "launch a ", "i want to build", "i need an app",
+                   "a website", "a system that"]
+    # Hebrew build verbs (no .lower() effect on Hebrew, but kept consistent)
+    he_triggers = ["תבנה", "תפתח", "תעצב", "תקים", "תעלה", "בנה ",
+                   "פתח פרוייקט", "צור פרוייקט", "פרוייקט חדש",
+                   "אני רוצה לבנות", "אני צריך אפליקציה", "אני צריך מערכת"]
+    triggers = en_triggers + he_triggers
+    if any(tr in t for tr in triggers) and len(text.split()) >= 3:
         return "project"
     return "chat"
 
@@ -191,11 +196,20 @@ async def chat(c: ChatIn):
             max_tokens=400,
         )
         # Strip mock prefix if in mock mode for cleaner UX
-        if reply.startswith("[MOCK::"):
-            reply = "Acknowledged. " + (
-                "Network is online and idle." if not projects
-                else f"Tracking {len(projects)} project(s)."
-            )
+        if reply.startswith("[MOCK::") or "Set ANTHROPIC_API_KEY" in reply:
+            t = c.text.lower()
+            if any(g in t for g in ["hello", "hi", "שלום", "היי"]):
+                reply = "Greetings, Sir. The agent network is online and standing by."
+            elif intent == "project":
+                reply = "Acknowledged. Decomposing the brief — routing to SCOUT."
+            elif "status" in t or "מצב" in t or len(projects) > 0:
+                reply = (f"Tracking {len(projects)} project(s). "
+                         f"Total spend ${cost_snap.get('total_usd', 0):.4f}. "
+                         f"Network nominal.")
+            else:
+                reply = ("Mock mode — language core offline. "
+                         "Add ANTHROPIC_API_KEY to .env for live conversation. "
+                         "Pipeline orchestration still works fully.")
     except Exception as e:
         reply = f"My language core is offline ({type(e).__name__}). Falling back to command mode."
 

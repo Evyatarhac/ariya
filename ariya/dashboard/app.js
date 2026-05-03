@@ -807,22 +807,141 @@ $("demoBtn").addEventListener("click", async () => {
 // ══════════════════════════════════════════════════════
 //  POLLING + WEBSOCKET
 // ══════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════
+//  HUD / PHASE STRIP / TOASTS
+// ══════════════════════════════════════════════════════
+const PHASES = ["INTAKE","RESEARCH","ARCH","IMPL","REVIEW","QA","DELIVERY"];
+const PHASE_MAP = {
+  "INTAKE":"INTAKE","RESEARCH":"RESEARCH","SPEC":"ARCH","ARCH":"ARCH",
+  "IMPL":"IMPL","BUILD":"IMPL","REVIEW":"REVIEW","QA":"QA",
+  "DELIVERY":"DELIVERY","DELIVERED":"DELIVERY","DONE":"DELIVERY",
+};
+function buildPhaseStrip() {
+  const el = $("phaseStrip");
+  if (!el || el.childElementCount) return;
+  PHASES.forEach((p, i) => {
+    if (i > 0) {
+      const sep = document.createElement("div"); sep.className = "phase-sep";
+      el.appendChild(sep);
+    }
+    const step = document.createElement("div");
+    step.className = "phase-step"; step.dataset.phase = p;
+    step.innerHTML = `<span class="pdot"></span><span class="plabel">${p}</span>`;
+    el.appendChild(step);
+  });
+}
+function updatePhaseStrip(currentPhase) {
+  const norm = PHASE_MAP[(currentPhase || "").toUpperCase()] || "";
+  const idx = PHASES.indexOf(norm);
+  document.querySelectorAll(".phase-step").forEach((step, i) => {
+    step.classList.remove("done", "active");
+    if (idx >= 0) {
+      if (i < idx) step.classList.add("done");
+      if (i === idx) step.classList.add("active");
+    }
+  });
+}
+
+function flashHud(id, value) {
+  const el = $(id); if (!el) return;
+  if (el.textContent !== String(value)) {
+    el.textContent = value;
+    el.classList.remove("flash"); void el.offsetWidth; el.classList.add("flash");
+  }
+}
+
+let _signalTimes = [];
+function recordSignalTimes(n) {
+  const now = Date.now();
+  for (let i = 0; i < n; i++) _signalTimes.push(now);
+  // keep last 60s window
+  const cutoff = now - 60000;
+  _signalTimes = _signalTimes.filter(t => t >= cutoff);
+}
+function signalsPerMin() { return _signalTimes.length; }
+
+function showToast(level, title, msg, ttl = 3500) {
+  const stack = $("toastStack"); if (!stack) return;
+  const t = document.createElement("div");
+  t.className = `toast ${level}`;
+  const icons = { success: "✓", warn: "!", error: "✕", info: "i" };
+  t.innerHTML = `<div class="ticon">${icons[level] || "i"}</div>
+    <div class="tbody"><div class="ttitle">${title}</div><div class="tmsg">${msg}</div></div>`;
+  stack.appendChild(t);
+  while (stack.children.length > 4) stack.firstChild.remove();
+  setTimeout(() => {
+    t.classList.add("hide");
+    setTimeout(() => t.remove(), 360);
+  }, ttl);
+}
+
+let _knownProjectIds = new Set();
+let _knownDlqLen = 0;
+
 async function tick() {
   try {
-    const [agents, activity, skills] = await Promise.all([
+    const [agents, activity, skills, projects, costSnap, dlq] = await Promise.all([
       api("GET","/api/agents"),
       api("GET","/api/activity?limit=200"),
       api("GET","/api/skills"),
+      api("GET","/api/projects"),
+      api("GET","/api/cost"),
+      api("GET","/api/dlq").catch(() => []),
     ]);
     buildCubes(agents, skills);
-    // First tick: skip historical signals, only show new ones from now on
+
+    // Mesh narration
     if (lastSeen === -1) { lastSeen = activity.length; }
     const newOnes = activity.slice(lastSeen);
     lastSeen = activity.length;
     newOnes.forEach(narrate);
-    const busy = agents.some(a => a.status === "processing");
-    $("orb").classList.toggle("thinking", busy);
-  } catch (_) {}
+    recordSignalTimes(newOnes.length);
+
+    // Orb thinking state
+    const activeCount = agents.filter(a => a.status === "processing").length;
+    $("orb").classList.toggle("thinking", activeCount > 0);
+
+    // HUD updates
+    flashHud("hudProjects", projects.length);
+    flashHud("hudAgents", `${activeCount} active`);
+    flashHud("hudSignals", `${signalsPerMin()}/min`);
+    flashHud("hudCost", `$${(costSnap.total_usd || 0).toFixed(4)}`);
+    const latestProj = projects[projects.length - 1];
+    flashHud("hudPhase", latestProj?.phase || "—");
+    updatePhaseStrip(latestProj?.phase);
+
+    // Toast — new project detected
+    projects.forEach(p => {
+      if (!_knownProjectIds.has(p.project_id)) {
+        if (_knownProjectIds.size > 0) {
+          // skip first-load population
+          showToast("success", "Project initiated", `${p.name} → ${p.phase}`);
+        }
+        _knownProjectIds.add(p.project_id);
+      }
+    });
+
+    // Toast — DLQ growth
+    if (dlq.length > _knownDlqLen) {
+      showToast("error", "Signal failure", `${dlq.length - _knownDlqLen} message(s) in DLQ`);
+    }
+    _knownDlqLen = dlq.length;
+
+    // Toast — gate awaiting (phase ending in _AWAIT or _GATE)
+    projects.forEach(p => {
+      if (p.phase && /AWAIT|GATE|PENDING/i.test(p.phase) && !p._toastedGate) {
+        showToast("warn", "Approval gate", `${p.name} awaiting ${p.phase}`);
+        p._toastedGate = true;
+      }
+    });
+
+  } catch (e) {
+    // Network/server down → show one warning
+    if (!window._netDown) {
+      window._netDown = true;
+      showToast("error", "Backend offline", "Reconnect retrying…", 6000);
+    }
+  }
 }
 
 function connectWS() {
@@ -840,6 +959,7 @@ function connectWS() {
 // ══════════════════════════════════════════════════════
 function boot() {
   buildConstellation();
+  buildPhaseStrip();
   window.addEventListener("resize", () => { buildConstellation(); });
   initTTS();
   initSTT();
