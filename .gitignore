@@ -9,4 +9,5 @@ node_modules/
 dist/
 .idea/
 .vscode/
+.claude/
 *.log
