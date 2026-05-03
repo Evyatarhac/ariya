@@ -370,7 +370,7 @@ function buildCubes(agents, skills) {
 // ══════════════════════════════════════════════════════
 //  SIGNAL NARRATION
 // ══════════════════════════════════════════════════════
-let lastSeen = 0;
+let lastSeen = -1;   // -1 = "not yet initialized"; set to current length on first tick
 const sigColors = {
   TASK: "rgba(95,216,255,0.85)",
   FEEDBACK: "rgba(255,166,77,0.85)",
@@ -390,58 +390,121 @@ function narrate(s) {
 // ══════════════════════════════════════════════════════
 //  INTEGRATIONS
 // ══════════════════════════════════════════════════════
-const INT_CONFIG = {
-  git:     { label: "GIT", color: "#f05033", fields: [{ key:"repo", label:"Repository URL" }, { key:"token", label:"Personal Access Token" }] },
-  clickup: { label: "CLICKUP", color: "#7b68ee", fields: [{ key:"team", label:"Team ID" }, { key:"token", label:"API Token" }] },
-  ide:     { label: "IDE / CURSOR", color: "#00b4d8", fields: [{ key:"ws", label:"WebSocket endpoint", placeholder:"ws://localhost:3456" }] },
-};
+// ══════════════════════════════════════════════════════
+//  INTEGRATIONS  (OAuth 2.0 via popup + manual token fallback)
+// ══════════════════════════════════════════════════════
 
-function dotConnected(id) {
-  return !!localStorage.getItem(`int_${id}_token`) || !!localStorage.getItem(`int_${id}_ws`);
-}
+let _intStatus = {};
 
-function refreshIntDots() {
-  Object.keys(INT_CONFIG).forEach(id => {
-    const el = $(`int-${id}`);
-    if (!el) return;
-    el.classList.toggle("connected", dotConnected(id));
-  });
+async function loadIntegrationStatus() {
+  try {
+    _intStatus = await api("GET", "/api/integrations");
+    $("int-git").classList.toggle("connected",     !!_intStatus.github?.connected);
+    $("int-clickup").classList.toggle("connected", !!_intStatus.clickup?.connected);
+    $("int-ide").classList.toggle("connected",     !!localStorage.getItem("int_ide_ws"));
+  } catch (_) {}
 }
 
 function openIntModal(intId) {
-  const cfg = INT_CONFIG[intId];
-  if (!cfg) return;
-  $("intModalTitle").textContent = cfg.label;
-  const body = $("intModalBody");
-  body.innerHTML = cfg.fields.map(f => `
-    <div class="int-field">
-      <label>${f.label}</label>
-      <input type="text" id="int_inp_${f.key}"
-             value="${localStorage.getItem(`int_${intId}_${f.key}`) || ""}"
-             placeholder="${f.placeholder || ""}"/>
-    </div>`).join("") +
-    `<button class="int-save" onclick="saveInt('${intId}')">CONNECT</button>
-     <div class="int-status-line" id="intStatusLine"></div>`;
-  $("intModal").classList.remove("hidden");
   SFX.click();
+  $("intModal").classList.remove("hidden");
+  $("intModalTitle").textContent = { git: "GIT / GITHUB", clickup: "CLICKUP", ide: "IDE / CURSOR" }[intId] || intId.toUpperCase();
+  const body = $("intModalBody");
+  const st = _intStatus;
+
+  if (intId === "git") {
+    const ghUser  = st.github?.user  ? `<div class="int-status-line ok">✓ Connected as <b>${st.github.user}</b></div>` : "";
+    const repoList = (st.github?.repos || []).map(r => `<div style="font-size:11px;color:var(--dim);padding:2px 0">📁 ${r}</div>`).join("");
+    body.innerHTML = `
+      ${ghUser}
+      ${repoList ? `<div style="margin:10px 0 4px;font-size:10px;letter-spacing:2px;color:var(--dim)">RECENT REPOS</div>${repoList}` : ""}
+      <button class="int-save" style="margin-top:16px" onclick="oauthLogin('github')">
+        ${st.github?.connected ? "↻ RE-CONNECT" : "CONNECT WITH GITHUB"}
+      </button>
+      <div style="margin-top:14px;color:var(--dim);font-size:10px;letter-spacing:1px">── or paste a personal access token ──</div>
+      <div class="int-field" style="margin-top:10px">
+        <label>TOKEN</label>
+        <input type="password" id="git_token_inp" placeholder="ghp_..." value="${st.github?.connected ? "••••••••" : ""}"/>
+      </div>
+      <button class="int-save" onclick="saveTokenManual('github','git_token_inp')">SAVE TOKEN</button>
+      <div class="int-status-line" id="intStatusLine"></div>`;
+
+  } else if (intId === "clickup") {
+    const cuUser = st.clickup?.user ? `<div class="int-status-line ok">✓ Connected as <b>${st.clickup.user}</b></div>` : "";
+    const teams  = (st.clickup?.teams || []).map(t => `<div style="font-size:11px;color:var(--dim);padding:2px 0">🏢 ${t}</div>`).join("");
+    body.innerHTML = `
+      ${cuUser}
+      ${teams ? `<div style="margin:10px 0 4px;font-size:10px;letter-spacing:2px;color:var(--dim)">WORKSPACES</div>${teams}` : ""}
+      <button class="int-save" style="margin-top:16px" onclick="oauthLogin('clickup')">
+        ${st.clickup?.connected ? "↻ RE-CONNECT" : "CONNECT WITH CLICKUP"}
+      </button>
+      <div style="margin-top:14px;color:var(--dim);font-size:10px;letter-spacing:1px">── or paste an API token ──</div>
+      <div class="int-field" style="margin-top:10px">
+        <label>TOKEN</label>
+        <input type="password" id="cu_token_inp" placeholder="pk_..." value="${st.clickup?.connected ? "••••••••" : ""}"/>
+      </div>
+      <button class="int-save" onclick="saveTokenManual('clickup','cu_token_inp')">SAVE TOKEN</button>
+      <div class="int-status-line" id="intStatusLine"></div>`;
+
+  } else if (intId === "ide") {
+    const saved = localStorage.getItem("int_ide_ws") || "";
+    body.innerHTML = `
+      <div class="int-field">
+        <label>CURSOR / VS CODE WS ENDPOINT</label>
+        <input type="text" id="ide_ws_inp" placeholder="ws://localhost:3456" value="${saved}"/>
+      </div>
+      <button class="int-save" onclick="saveIde()">CONNECT</button>
+      <div class="int-status-line" id="intStatusLine"></div>
+      <div style="margin-top:16px;font-size:10px;color:var(--dim);line-height:1.8">
+        Install the ARIYA VS Code extension from <code>vscode-extension/</code>.<br>
+        Set <b>ariya.endpoint</b> to <code>http://localhost:8765</code> in settings.
+      </div>`;
+  }
 }
-window.saveInt = function(intId) {
-  const cfg = INT_CONFIG[intId];
-  cfg.fields.forEach(f => {
-    const val = document.getElementById(`int_inp_${f.key}`)?.value || "";
-    localStorage.setItem(`int_${intId}_${f.key}`, val);
+
+window.oauthLogin = function(provider) {
+  const url = `/api/auth/${provider === "github" ? "github" : "clickup"}`;
+  const popup = window.open(url, "ariya_oauth",
+    "width=520,height=640,toolbar=no,menubar=no,scrollbars=yes,resizable=yes");
+  window.addEventListener("message", async function handler(e) {
+    if (e.data?.type === "oauth_success" && e.data.provider === provider) {
+      window.removeEventListener("message", handler);
+      SFX.approve();
+      await loadIntegrationStatus();
+      openIntModal({ github: "git", clickup: "clickup" }[provider] || provider);
+      ariyaSay(`${provider} connected as ${e.data.user}.`);
+    }
   });
-  $("intStatusLine").className = "int-status-line ok";
-  $("intStatusLine").textContent = "✓ Saved.";
-  refreshIntDots();
-  SFX.approve();
-  const el = $(`int-${intId}`);
-  if (el) el.classList.add("connected");
 };
 
-Object.keys(INT_CONFIG).forEach(id => {
-  $(`int-${id}`)?.addEventListener("click", () => openIntModal(id));
-});
+window.saveTokenManual = async function(provider, inputId) {
+  const token = document.getElementById(inputId)?.value || "";
+  if (!token || token.startsWith("•")) return;
+  // Post to a simple endpoint that stores it server-side
+  try {
+    await api("POST", `/api/integrations/${provider}/token`, { token });
+    await loadIntegrationStatus();
+    $("intStatusLine").className = "int-status-line ok";
+    $("intStatusLine").textContent = "✓ Token saved.";
+    SFX.approve();
+  } catch (e) {
+    $("intStatusLine").className = "int-status-line err";
+    $("intStatusLine").textContent = "✗ Failed to save.";
+  }
+};
+
+window.saveIde = function() {
+  const ws = $("ide_ws_inp")?.value || "";
+  localStorage.setItem("int_ide_ws", ws);
+  $("int-ide").classList.toggle("connected", !!ws);
+  $("intStatusLine").className = "int-status-line ok";
+  $("intStatusLine").textContent = "✓ Saved.";
+  SFX.approve();
+};
+
+$("int-git").addEventListener("click",     () => openIntModal("git"));
+$("int-clickup").addEventListener("click", () => openIntModal("clickup"));
+$("int-ide").addEventListener("click",     () => openIntModal("ide"));
 $("intModalClose").addEventListener("click", () => $("intModal").classList.add("hidden"));
 $("intModal").addEventListener("click", e => { if (e.target === $("intModal")) $("intModal").classList.add("hidden"); });
 
@@ -500,6 +563,17 @@ $("chatInput").addEventListener("keydown", e => {
 });
 $("orb").addEventListener("click", () => $("chatInput").focus());
 
+$("demoBtn").addEventListener("click", async () => {
+  SFX.send();
+  ariyaSay("Initiating live demo. Watch the agent network come alive.");
+  const res = await api("POST", "/api/projects", {
+    name: "Live Demo — SaaS Dashboard",
+    brief: "Build a SaaS analytics dashboard for restaurant chains. React + TypeScript frontend, Node.js + Express backend, PostgreSQL database. Include auth, real-time charts, and order management.",
+    template: "saas",
+  });
+  if (!res.error) ariyaSay(`Project ${res.project_id?.slice(0,8)} running — agents activating.`);
+});
+
 // ══════════════════════════════════════════════════════
 //  POLLING + WEBSOCKET
 // ══════════════════════════════════════════════════════
@@ -511,6 +585,8 @@ async function tick() {
       api("GET","/api/skills"),
     ]);
     buildCubes(agents, skills);
+    // First tick: skip historical signals, only show new ones from now on
+    if (lastSeen === -1) { lastSeen = activity.length; }
     const newOnes = activity.slice(lastSeen);
     lastSeen = activity.length;
     newOnes.forEach(narrate);
@@ -538,7 +614,7 @@ function boot() {
   initTTS();
   initSTT();
   startClapListener();
-  refreshIntDots();
+  loadIntegrationStatus();
   setTimeout(() => ariyaSay("ARIYA online. Neural network standing by. Speak your brief."), 600);
   tick();
   setInterval(tick, 3500);

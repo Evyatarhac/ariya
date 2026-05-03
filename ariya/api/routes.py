@@ -5,6 +5,7 @@ import os
 from fastapi import APIRouter, Depends, Header, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
+from ariya.api.auth import auth_router, integration_status
 from ariya.bus import bus
 from ariya.gateway import gateway
 from ariya.gateway.model_gateway import cost
@@ -127,6 +128,46 @@ def get_cost():
 def get_dlq():
     return [{"signal": s.model_dump(), "error": err} for s, err in bus.dlq()]
 
+
+@router.get("/integrations")
+def integrations():
+    return integration_status()
+
+
+class TokenIn(BaseModel):
+    token: str
+
+@router.post("/integrations/github/token")
+async def set_github_token(t: TokenIn):
+    from ariya.api.auth import _tokens
+    import httpx
+    _tokens["github"]["token"] = t.token
+    try:
+        async with httpx.AsyncClient(headers={"Authorization": f"token {t.token}", "Accept": "application/json"}) as c:
+            u = (await c.get("https://api.github.com/user")).json()
+            repos_r = (await c.get("https://api.github.com/user/repos?per_page=30&sort=pushed")).json()
+        _tokens["github"]["user"] = u.get("login", "")
+        _tokens["github"]["repos"] = [r["full_name"] for r in (repos_r if isinstance(repos_r, list) else [])]
+    except Exception:
+        pass
+    return {"ok": True, "user": _tokens["github"]["user"]}
+
+@router.post("/integrations/clickup/token")
+async def set_clickup_token(t: TokenIn):
+    from ariya.api.auth import _tokens
+    import httpx
+    _tokens["clickup"]["token"] = t.token
+    try:
+        async with httpx.AsyncClient(headers={"Authorization": t.token}) as c:
+            u = (await c.get("https://api.clickup.com/api/v2/user")).json()
+            teams = (await c.get("https://api.clickup.com/api/v2/team")).json()
+        _tokens["clickup"]["user"] = u.get("user", {}).get("username", "")
+        _tokens["clickup"]["teams"] = [tm["name"] for tm in teams.get("teams", [])]
+    except Exception:
+        pass
+    return {"ok": True, "user": _tokens["clickup"]["user"]}
+
+router.include_router(auth_router)
 
 @router.get("/health")
 def health():

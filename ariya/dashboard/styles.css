@@ -218,6 +218,14 @@ html, body {
   animation: pulse 0.8s ease-in-out infinite;
 }
 .tts-btn.muted { color: var(--dim); }
+.demo-btn {
+  flex-shrink: 0; padding: 0 16px; height: 46px; border-radius: 23px;
+  background: rgba(95,216,255,0.08); border: 1px solid rgba(95,216,255,0.25);
+  color: var(--accent); cursor: pointer; font-size: 11px; letter-spacing: 2px;
+  font-family: inherit; white-space: nowrap;
+  transition: all 0.2s;
+}
+.demo-btn:hover { background: rgba(95,216,255,0.18); box-shadow: 0 0 16px var(--glow); }
 
 /* ── AGENT RAIL (right panel) ─────────────────────── */
 .agent-rail {
