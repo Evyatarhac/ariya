@@ -1,0 +1,24 @@
+version: "3.9"
+services:
+  ariya:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      ARIYA_BUS: ${ARIYA_BUS:-memory}
+      REDIS_URL: redis://redis:6379/0
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ARIYA_API_TOKEN: ${ARIYA_API_TOKEN:-}
+      ARIYA_MOCK_MODE: ${ARIYA_MOCK_MODE:-auto}
+    volumes:
+      - ./projects:/app/projects
+      - ariya-data:/app/data
+    depends_on:
+      - redis
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+volumes:
+  ariya-data:

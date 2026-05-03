@@ -1,26 +1,44 @@
 from __future__ import annotations
 import asyncio
 import json
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+import os
+from fastapi import APIRouter, Depends, Header, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
 from ariya.bus import bus
+from ariya.gateway import gateway
+from ariya.gateway.model_gateway import cost
 from ariya.orchestrator import brain
+from ariya.orchestrator.sprint import standup_digest, velocity
 from ariya.skills import registry
 from ariya.state import store
+from ariya.workspace.repo import ROOT as PROJECTS_ROOT
 
 router = APIRouter()
+
+API_TOKEN = os.getenv("ARIYA_API_TOKEN", "")
+
+
+def auth(authorization: str | None = Header(default=None)):
+    """If ARIYA_API_TOKEN is set, require Bearer token. Otherwise open."""
+    if not API_TOKEN:
+        return
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(401, "missing bearer token")
+    if authorization.split(" ", 1)[1].strip() != API_TOKEN:
+        raise HTTPException(403, "bad token")
 
 
 class ProjectIn(BaseModel):
     name: str
     brief: str
     auto_approve: bool = True
+    template: str = ""
 
 
-@router.post("/projects")
+@router.post("/projects", dependencies=[Depends(auth)])
 async def create_project(p: ProjectIn):
-    proj = await brain.intake(p.name, p.brief, p.auto_approve)
+    proj = await brain.intake(p.name, p.brief, p.auto_approve, p.template)
     return {"project_id": proj.project_id, "name": proj.name, "phase": proj.phase}
 
 
@@ -35,7 +53,46 @@ def get_project(project_id: str):
     return p.model_dump() if p else {"error": "not found"}
 
 
-@router.post("/projects/{project_id}/approve/{gate}")
+@router.get("/projects/{project_id}/files")
+def get_files(project_id: str):
+    repo = PROJECTS_ROOT / project_id / "repo"
+    if not repo.exists():
+        return {"files": []}
+    files = []
+    for path in repo.rglob("*"):
+        if ".git" in path.parts or not path.is_file():
+            continue
+        rel = path.relative_to(repo)
+        try:
+            size = path.stat().st_size
+        except OSError:
+            size = 0
+        files.append({"path": str(rel).replace("\\", "/"), "size": size})
+    return {"files": files}
+
+
+@router.get("/projects/{project_id}/file")
+def get_file(project_id: str, path: str):
+    repo = PROJECTS_ROOT / project_id / "repo"
+    target = (repo / path).resolve()
+    if not str(target).startswith(str(repo.resolve())):
+        raise HTTPException(400, "bad path")
+    if not target.is_file():
+        raise HTTPException(404, "not found")
+    return {"path": path, "content": target.read_text(encoding="utf-8", errors="replace")}
+
+
+@router.get("/projects/{project_id}/standup")
+def get_standup(project_id: str):
+    return standup_digest(project_id)
+
+
+@router.get("/projects/{project_id}/velocity")
+def get_velocity(project_id: str):
+    return velocity(project_id)
+
+
+@router.post("/projects/{project_id}/approve/{gate}", dependencies=[Depends(auth)])
 async def approve(project_id: str, gate: str, note: str = ""):
     await brain.approve_gate(project_id, gate, note)
     return {"ok": True}
@@ -61,6 +118,21 @@ def signals(limit: int = 50):
     return [s.model_dump() for s in bus.history(limit)]
 
 
+@router.get("/cost")
+def get_cost():
+    return cost.snapshot()
+
+
+@router.get("/dlq")
+def get_dlq():
+    return [{"signal": s.model_dump(), "error": err} for s, err in bus.dlq()]
+
+
+@router.get("/health")
+def health():
+    return {"ok": True, "agents": len(store.all_agents()), "mock": gateway.__class__.__name__}
+
+
 @router.websocket("/ws")
 async def ws(websocket: WebSocket):
     await websocket.accept()
@@ -79,6 +151,7 @@ async def ws(websocket: WebSocket):
             await websocket.send_text(json.dumps({
                 "type": "agents",
                 "agents": store.all_agents(),
+                "cost": cost.snapshot(),
             }))
     except WebSocketDisconnect:
         return

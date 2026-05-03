@@ -18,10 +18,16 @@
 <main class="grid">
   <section class="panel terminal">
     <h2>Command Terminal</h2>
-    <textarea id="brief" rows="4" placeholder="ARIYA, build me a SaaS dashboard for restaurant orders. React + Node + PostgreSQL. Production-ready."></textarea>
+    <textarea id="brief" rows="3" placeholder="ARIYA, build me a SaaS dashboard for restaurant orders. React + Node + PostgreSQL. Production-ready."></textarea>
     <div class="row">
       <input id="pname" placeholder="Project name" />
-      <button id="launch">⟶ Launch Project</button>
+      <select id="template">
+        <option value="">-- template --</option>
+        <option value="saas">SaaS Dashboard</option>
+        <option value="ecommerce">E-Commerce</option>
+        <option value="mobile-api">Mobile API</option>
+      </select>
+      <button id="launch">⟶ Launch</button>
     </div>
     <div id="reply" class="reply"></div>
   </section>
@@ -31,13 +37,23 @@
     <div id="agents" class="agent-grid"></div>
   </section>
 
+  <section class="panel flow">
+    <h2>Neural Flow Map</h2>
+    <svg id="graph" viewBox="0 0 600 320"></svg>
+    <div class="cost-row">
+      <span>Σ tokens in: <b id="cost-in">0</b></span>
+      <span>Σ tokens out: <b id="cost-out">0</b></span>
+      <span>Σ cost: <b id="cost-usd">$0</b></span>
+    </div>
+  </section>
+
   <section class="panel projects">
     <h2>Projects</h2>
     <div id="projects"></div>
   </section>
 
-  <section class="panel activity">
-    <h2>Neural Signal Flow</h2>
+  <section class="panel activity full">
+    <h2>Signal Stream</h2>
     <div id="activity" class="activity-list"></div>
   </section>
 </main>
