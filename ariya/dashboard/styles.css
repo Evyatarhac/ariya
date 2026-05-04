@@ -105,6 +105,67 @@ html, body {
   width: 6px; height: 6px; border-radius: 50%;
   box-shadow: 0 0 6px currentColor;
 }
+
+/* ── BRAIN NODES (per-agent neural micro-clusters) ── */
+.brain-node .brain-outer {
+  transform-origin: center;
+  animation: brainSpin 26s linear infinite;
+  transform-box: fill-box;
+}
+.brain-node .brain-mid {
+  transform-origin: center;
+  animation: brainSpin 16s linear infinite reverse;
+  transform-box: fill-box;
+}
+@keyframes brainSpin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+.brain-node .brain-core {
+  transform-origin: center;
+  transform-box: fill-box;
+  animation: brainPulse 2.4s ease-in-out infinite;
+}
+@keyframes brainPulse {
+  0%,100% { opacity: 0.85; r: 5; }
+  50%      { opacity: 1;    r: 5.6; }
+}
+.brain-node .brain-pupil { animation: pupilBlink 4s ease-in-out infinite; }
+@keyframes pupilBlink {
+  0%,92%,100% { opacity: 0.95; }
+  95%          { opacity: 0.2; }
+}
+.brain-node .fiber {
+  transition: stroke-width 0.18s ease, opacity 0.18s ease;
+}
+.brain-node .synapse {
+  transition: r 0.18s ease, opacity 0.18s ease;
+}
+
+/* PROCESSING state — agent is actively working */
+.brain-node.processing .brain-halo {
+  opacity: 1 !important;
+  animation: brainHalo 1.6s ease-in-out infinite;
+}
+@keyframes brainHalo {
+  0%,100% { opacity: 0.5; transform: scale(1); }
+  50%      { opacity: 1;   transform: scale(1.15); }
+}
+.brain-node.processing .brain-core {
+  animation: brainPulseFast 0.7s ease-in-out infinite;
+}
+@keyframes brainPulseFast {
+  0%,100% { opacity: 1; r: 6;   filter: brightness(1.0); }
+  50%      { opacity: 1; r: 7.5; filter: brightness(1.5); }
+}
+.brain-node.processing .brain-outer {
+  animation-duration: 8s;
+  stroke-opacity: 0.7;
+}
+.brain-node.processing .brain-mid {
+  animation-duration: 5s;
+}
+.brain-halo { transition: opacity 0.4s ease; }
 .constellation {
   position: absolute;
   width: min(600px, 88%);

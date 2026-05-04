@@ -258,22 +258,116 @@ function buildConstellation() {
     const a = (i / AGENT_NAMES.length) * Math.PI * 2 - Math.PI / 2;
     NODES[id] = { x: cx + r * Math.cos(a), y: cy + r * Math.sin(a) };
   });
-  // Draw static ring + colored node markers + labels
+  // Draw static ring + brain-style agent nodes + labels
   let h = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="rgba(95,216,255,0.05)" stroke-dasharray="2 10"/>`;
+  // SVG defs for filters and gradients
+  h += `<defs>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="2.5" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>`;
   AGENT_NAMES.forEach(id => {
     const p = NODES[id];
     const c = agentColor(id);
-    const labelOffset = (p.y < cy - 4) ? -14 : 22;
-    h += `<g class="cnode" data-id="${id}">
-      <circle cx="${p.x}" cy="${p.y}" r="5" fill="${hexToRgba(c,0.25)}" stroke="${c}" stroke-width="1.2"/>
-      <text x="${p.x}" y="${p.y + labelOffset}" text-anchor="middle"
-            font-family="monospace" font-size="9" letter-spacing="2" fill="${hexToRgba(c,0.55)}">${id}</text>
-    </g>`;
+    const labelOffset = (p.y < cy - 4) ? -28 : 34;
+    h += renderBrainNode(id, p.x, p.y, c, labelOffset);
   });
   svg.innerHTML = h;
+  // After insertion, kick off neural-fiber animation per node
+  startBrainAnimations();
 
   buildMeshLegend();
   setupMeshCanvas();
+}
+
+// Render a single agent as a small "brain" — pulsing core + neural fibers + outer rings
+function renderBrainNode(id, cx, cy, color, labelOffset) {
+  const R_OUTER = 18;   // outer ring
+  const R_MID   = 13;   // mid ring
+  const R_CORE  = 5;    // bright core
+  const cFaint = hexToRgba(color, 0.18);
+  const cDim   = hexToRgba(color, 0.4);
+  const cLit   = hexToRgba(color, 0.85);
+
+  // Generate 7 curved neural fibers radiating from core
+  let fibers = "";
+  const FIBER_COUNT = 7;
+  for (let i = 0; i < FIBER_COUNT; i++) {
+    const angle = (i / FIBER_COUNT) * Math.PI * 2 + Math.random() * 0.4;
+    const len = R_MID + 4 + Math.random() * 5;
+    const x1 = cx + Math.cos(angle) * (R_CORE - 1);
+    const y1 = cy + Math.sin(angle) * (R_CORE - 1);
+    const x2 = cx + Math.cos(angle) * len;
+    const y2 = cy + Math.sin(angle) * len;
+    // control point for curve (slightly perpendicular)
+    const perp = angle + Math.PI / 2;
+    const curve = (Math.random() - 0.5) * 4;
+    const cxp = (x1 + x2) / 2 + Math.cos(perp) * curve;
+    const cyp = (y1 + y2) / 2 + Math.sin(perp) * curve;
+    fibers += `<path class="fiber f${i}" d="M${x1.toFixed(1)},${y1.toFixed(1)} Q${cxp.toFixed(1)},${cyp.toFixed(1)} ${x2.toFixed(1)},${y2.toFixed(1)}"
+                  fill="none" stroke="${cDim}" stroke-width="0.6" stroke-linecap="round" opacity="0.7"/>
+               <circle class="synapse s${i}" cx="${x2.toFixed(1)}" cy="${y2.toFixed(1)}" r="0.9"
+                  fill="${cLit}" opacity="0.6"/>`;
+  }
+
+  return `<g class="cnode brain-node" data-id="${id}" data-color="${color}">
+    <!-- outer slow rotation ring -->
+    <circle class="brain-outer" cx="${cx}" cy="${cy}" r="${R_OUTER}"
+            fill="none" stroke="${cFaint}" stroke-width="0.5" stroke-dasharray="2 4"/>
+    <!-- mid ring -->
+    <circle class="brain-mid" cx="${cx}" cy="${cy}" r="${R_MID}"
+            fill="none" stroke="${cFaint}" stroke-width="0.4" stroke-dasharray="1 3"/>
+    <!-- neural fibers + synapse endpoints -->
+    <g class="fibers" filter="url(#glow)">${fibers}</g>
+    <!-- core -->
+    <circle class="brain-halo" cx="${cx}" cy="${cy}" r="${R_OUTER + 6}"
+            fill="${hexToRgba(color, 0.06)}" opacity="0"/>
+    <circle class="brain-core" cx="${cx}" cy="${cy}" r="${R_CORE}"
+            fill="${cLit}" filter="url(#glow)"/>
+    <circle class="brain-pupil" cx="${cx}" cy="${cy}" r="2"
+            fill="#ffffff" opacity="0.9"/>
+    <!-- label -->
+    <text x="${cx}" y="${cy + labelOffset}" text-anchor="middle"
+          font-family="monospace" font-size="9" letter-spacing="2"
+          fill="${hexToRgba(color, 0.7)}">${id}</text>
+  </g>`;
+}
+
+let _brainAnimTimers = [];
+function startBrainAnimations() {
+  _brainAnimTimers.forEach(clearInterval);
+  _brainAnimTimers = [];
+  document.querySelectorAll(".brain-node").forEach(node => {
+    const id = node.dataset.id;
+    const fibers = node.querySelectorAll(".fiber");
+    const synapses = node.querySelectorAll(".synapse");
+    // Random fiber-firing every 700-1400ms per agent
+    const t = setInterval(() => {
+      const isProcessing = node.classList.contains("processing");
+      const i = Math.floor(Math.random() * fibers.length);
+      const f = fibers[i], s = synapses[i];
+      if (!f) return;
+      const baseW = isProcessing ? 1.4 : 0.9;
+      const flashW = isProcessing ? 2.4 : 1.6;
+      f.setAttribute("stroke-width", flashW);
+      f.setAttribute("opacity", "1");
+      if (s) { s.setAttribute("r", isProcessing ? 1.8 : 1.4); s.setAttribute("opacity", "1"); }
+      setTimeout(() => {
+        f.setAttribute("stroke-width", baseW * 0.5);
+        f.setAttribute("opacity", "0.7");
+        if (s) { s.setAttribute("r", "0.9"); s.setAttribute("opacity", "0.6"); }
+      }, 220);
+    }, 700 + Math.random() * 700);
+    _brainAnimTimers.push(t);
+  });
+}
+
+// Mark an agent brain as processing (called from tick)
+function setBrainProcessing(id, on) {
+  const node = document.querySelector(`.brain-node[data-id="${id}"]`);
+  if (!node) return;
+  node.classList.toggle("processing", on);
 }
 
 function buildMeshLegend() {
@@ -581,6 +675,14 @@ function narrate(s) {
   SFX.agent();
   if (s.type === "APPROVAL") SFX.approve();
   if (s.type === "ALERT")    SFX.alert();
+  // Transient brain pulse on both ends
+  setBrainProcessing(s.from, true);
+  setBrainProcessing(s.to, true);
+  setTimeout(() => {
+    // Only clear if no live agent state forces it
+    setBrainProcessing(s.from, false);
+    setBrainProcessing(s.to, false);
+  }, 1400);
 }
 
 // ══════════════════════════════════════════════════════
@@ -939,6 +1041,8 @@ async function tick() {
     // Orb thinking state
     const activeCount = agents.filter(a => a.status === "processing").length;
     $("orb").classList.toggle("thinking", activeCount > 0);
+    // Brain-node processing pulse per agent
+    agents.forEach(a => setBrainProcessing(a.agent_id, a.status === "processing"));
 
     // HUD updates
     flashHud("hudProjects", projects.length);
