@@ -946,11 +946,17 @@ $("demoBtn").addEventListener("click", async () => {
 // ══════════════════════════════════════════════════════
 //  HUD / PHASE STRIP / TOASTS
 // ══════════════════════════════════════════════════════
-const PHASES = ["INTAKE","RESEARCH","ARCH","IMPL","REVIEW","QA","DELIVERY"];
+const PHASES = ["INTAKE","RESEARCH","ARCH","REVIEW","DEV","TEST","HEAL","FINAL","SHIP"];
 const PHASE_MAP = {
-  "INTAKE":"INTAKE","RESEARCH":"RESEARCH","SPEC":"ARCH","ARCH":"ARCH",
-  "IMPL":"IMPL","BUILD":"IMPL","REVIEW":"REVIEW","QA":"QA",
-  "DELIVERY":"DELIVERY","DELIVERED":"DELIVERY","DONE":"DELIVERY",
+  "INTAKE":"INTAKE",
+  "RESEARCH":"RESEARCH",
+  "ARCHITECTURE":"ARCH","SPEC":"ARCH","ARCH":"ARCH",
+  "REVIEW":"REVIEW",
+  "DEVELOPMENT":"DEV","IMPL":"DEV","BUILD":"DEV",
+  "TESTING":"TEST","QA":"TEST",
+  "SELF_HEALING":"HEAL","HEALING":"HEAL",
+  "FINAL_REVIEW":"FINAL",
+  "DEPLOYMENT":"SHIP","DELIVERY":"SHIP","DELIVERED":"SHIP","DONE":"SHIP",
 };
 function buildPhaseStrip() {
   const el = $("phaseStrip");
