@@ -114,18 +114,26 @@ $("ttsToggle").addEventListener("click", () => {
 // ══════════════════════════════════════════════════════
 let clapStream = null;
 let lastClapTime = 0;
-const CLAP_THRESHOLD = 0.18;   // RMS amplitude 0-1
-const CLAP_WINDOW    = 600;    // ms between two spikes = double-clap (single clap fires on first)
+let lastGreetTime = 0;
+const CLAP_THRESHOLD = 0.45;   // higher RMS — actual clap, not voice/ambient
+const CLAP_MIN_GAP   = 120;    // ms — clap is brief; below this is the same spike
+const CLAP_MAX_GAP   = 450;    // ms between the two claps for a valid double-clap
+const GREET_COOLDOWN = 15000;  // ms — at least 15s between greetings (anti-spam)
+const CLAP_DISABLE   = (window.localStorage?.getItem("clapDisabled") === "1");
 
 async function startClapListener() {
+  if (CLAP_DISABLE) return;
   try {
     clapStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
     const ctx   = getACtx();
     const src   = ctx.createMediaStreamSource(clapStream);
     const analyser = ctx.createAnalyser();
-    analyser.fftSize = 256;
+    analyser.fftSize = 512;
     src.connect(analyser);
     const buf = new Float32Array(analyser.fftSize);
+
+    // Track ambient baseline so a clap = sudden 4× spike vs. baseline
+    let baseline = 0.02;
 
     let triggered = false;
     function loop() {
@@ -134,15 +142,24 @@ async function startClapListener() {
       for (let i = 0; i < buf.length; i++) rms += buf[i] * buf[i];
       rms = Math.sqrt(rms / buf.length);
 
-      if (rms > CLAP_THRESHOLD && !triggered) {
+      // Update slow baseline (when not currently spiking)
+      if (rms < CLAP_THRESHOLD * 0.6) baseline = baseline * 0.99 + rms * 0.01;
+
+      const now = Date.now();
+      const isClapCandidate = rms > CLAP_THRESHOLD && rms > baseline * 6;
+
+      if (isClapCandidate && !triggered) {
         triggered = true;
-        const now = Date.now();
-        if (now - lastClapTime < CLAP_WINDOW) {
-          // second clap within window → fire greeting
-          onClap();
+        const gap = now - lastClapTime;
+        if (gap > CLAP_MIN_GAP && gap < CLAP_MAX_GAP) {
+          // valid double-clap — but respect greeting cooldown
+          if (now - lastGreetTime > GREET_COOLDOWN) {
+            lastGreetTime = now;
+            onClap();
+          }
         }
         lastClapTime = now;
-        setTimeout(() => { triggered = false; }, 120);
+        setTimeout(() => { triggered = false; }, 200);
       }
       requestAnimationFrame(loop);
     }
@@ -156,6 +173,11 @@ function onClap() {
   SFX.approve();
   ariyaSay("Greetings, Sir.");
 }
+
+// Allow user to disable clap detector via console: ariya.disableClap()
+window.ariya = window.ariya || {};
+window.ariya.disableClap = () => { localStorage.setItem("clapDisabled","1"); location.reload(); };
+window.ariya.enableClap  = () => { localStorage.removeItem("clapDisabled"); location.reload(); };
 
 // ══════════════════════════════════════════════════════
 //  SPEECH-TO-TEXT (microphone)
