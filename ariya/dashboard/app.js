@@ -237,12 +237,19 @@ function addMsg(text, role) {
   while (msgs.children.length > 60) msgs.removeChild(msgs.firstChild);
 }
 
-function ariyaSay(text) {
+function ariyaSay(text, opts = {}) {
   $("orb").classList.add("speaking");
   setTimeout(() => $("orb").classList.remove("speaking"), 900);
   SFX.receive();
   addMsg(text, "ariya");
   speak_tts(text);
+  // Persist to backend unless explicitly skipped (chat endpoint already saves itself)
+  if (!opts.skipPersist) {
+    fetch("/api/conversation/message", {
+      method: "POST", headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({role:"ariya", text, intent: opts.intent || ""}),
+    }).catch(() => {});
+  }
 }
 
 // ══════════════════════════════════════════════════════
@@ -868,6 +875,12 @@ async function submit(text) {
   $("orb").classList.add("thinking");
 
   const lower = text.toLowerCase().trim();
+  // Persist user message (chat endpoint also saves it; harmless duplicate prevention via debounce)
+  // For non-chat paths (status/approve), this is the only save.
+  fetch("/api/conversation/message", {
+    method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({role:"user", text, intent:""}),
+  }).catch(() => {});
 
   // status / report
   if (lower === "status" || lower === "report" || lower === "מה המצב") {
@@ -900,12 +913,14 @@ async function submit(text) {
     const r = await api("POST", "/api/chat", { text });
     if (r.intent === "project") {
       const name = text.split(/[.,\n]/)[0].slice(0, 48) || "New Project";
-      ariyaSay(r.reply || "Acknowledged. Routing to SCOUT.");
+      // /api/chat already persisted r.reply
+      ariyaSay(r.reply || "Acknowledged. Routing to SCOUT.", { skipPersist: true });
       const res = await api("POST", "/api/projects", { name, brief: text });
       if (res.error) ariyaSay("An error occurred: " + res.error);
       else ariyaSay(`Project ${res.project_id?.slice(0,8)} initiated — agents engaging.`);
     } else {
-      ariyaSay(r.reply || "Standing by.");
+      // /api/chat already persisted r.reply
+      ariyaSay(r.reply || "Standing by.", { skipPersist: true });
     }
   } catch (e) {
     if (e.status === 404) {
@@ -1128,6 +1143,23 @@ function connectWS() {
 // ══════════════════════════════════════════════════════
 //  BOOT
 // ══════════════════════════════════════════════════════
+async function loadConversationHistory() {
+  try {
+    const msgs = await api("GET", "/api/conversation?limit=200");
+    if (!msgs || !msgs.length) return;
+    msgs.forEach(m => {
+      const role = m.role === "user" ? "user" : "ariya";
+      const d = document.createElement("div");
+      d.className = `msg ${role} historical`;
+      d.textContent = m.text;
+      $("messages").appendChild(d);
+    });
+    $("messages").scrollTop = $("messages").scrollHeight;
+  } catch (e) {
+    // 404 = old backend without /api/conversation — silently skip
+  }
+}
+
 function boot() {
   buildConstellation();
   buildPhaseStrip();
@@ -1136,7 +1168,12 @@ function boot() {
   initSTT();
   startClapListener();
   loadIntegrationStatus();
-  setTimeout(() => ariyaSay("ARIYA online. Neural network standing by. Speak your brief."), 600);
+  loadConversationHistory().then(() => {
+    // Only fire boot greeting if no prior history
+    if ($("messages").children.length === 0) {
+      setTimeout(() => ariyaSay("ARIYA online. Neural network standing by. Speak your brief."), 600);
+    }
+  });
   tick();
   setInterval(tick, 3500);
   connectWS();

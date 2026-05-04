@@ -129,6 +129,28 @@ def get_dlq():
     return [{"signal": s.model_dump(), "error": err} for s, err in bus.dlq()]
 
 
+# ── Conversation persistence ────────────────────────────────────
+class MessageIn(BaseModel):
+    role: str   # 'user' | 'ariya' | 'system'
+    text: str
+    intent: str = ""
+
+@router.get("/conversation")
+def get_conversation(limit: int = 200):
+    """Return recent chat history, oldest first."""
+    return store.list_messages(limit=limit)
+
+@router.post("/conversation/message")
+def add_message(m: MessageIn):
+    mid = store.add_message(m.role, m.text, m.intent)
+    return {"ok": True, "message_id": mid}
+
+@router.delete("/conversation")
+def clear_conversation():
+    n = store.clear_messages()
+    return {"ok": True, "deleted": n}
+
+
 # ── ARIYA conversational chat ───────────────────────────────────
 class ChatIn(BaseModel):
     text: str
@@ -250,7 +272,9 @@ async def chat(c: ChatIn):
     except Exception as e:
         reply = f"My language core is offline ({type(e).__name__}). Falling back to command mode."
 
-    return {"intent": intent, "reply": reply.strip()}
+    final = reply.strip()
+    store.add_message("ariya", final, intent)
+    return {"intent": intent, "reply": final}
 
 
 @router.get("/integrations")
