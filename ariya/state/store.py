@@ -40,6 +40,14 @@ CREATE TABLE IF NOT EXISTS approvals (
   note TEXT,
   PRIMARY KEY (project_id, gate)
 );
+CREATE TABLE IF NOT EXISTS messages (
+  message_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  role TEXT,            -- 'user' | 'ariya' | 'system'
+  text TEXT,
+  intent TEXT,
+  created_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_messages_created ON messages(created_at);
 """
 
 
@@ -117,6 +125,32 @@ class StateStore:
             "SELECT gate, approved FROM approvals WHERE project_id=?", (project_id,)
         )
         return {g: bool(a) for g, a in cur.fetchall()}
+
+    # ---------- conversation messages ----------
+    def add_message(self, role: str, text: str, intent: str = "") -> int:
+        from datetime import datetime, timezone
+        with self._lock:
+            cur = self._conn.execute(
+                "INSERT INTO messages (role, text, intent, created_at) VALUES (?, ?, ?, ?)",
+                (role, text, intent, datetime.now(timezone.utc).isoformat()),
+            )
+            self._conn.commit()
+            return cur.lastrowid
+
+    def list_messages(self, limit: int = 200) -> list[dict[str, Any]]:
+        cur = self._conn.execute(
+            "SELECT message_id, role, text, intent, created_at FROM messages "
+            "ORDER BY message_id DESC LIMIT ?", (limit,)
+        )
+        rows = cur.fetchall()
+        return [{"message_id": r[0], "role": r[1], "text": r[2],
+                 "intent": r[3], "created_at": r[4]} for r in reversed(rows)]
+
+    def clear_messages(self) -> int:
+        with self._lock:
+            cur = self._conn.execute("DELETE FROM messages")
+            self._conn.commit()
+            return cur.rowcount
 
 
 store = StateStore()

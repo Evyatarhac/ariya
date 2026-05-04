@@ -1,26 +1,45 @@
 from __future__ import annotations
 import asyncio
 import json
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+import os
+from fastapi import APIRouter, Depends, Header, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
+from ariya.api.auth import auth_router, integration_status
 from ariya.bus import bus
+from ariya.gateway import gateway
+from ariya.gateway.model_gateway import cost
 from ariya.orchestrator import brain
+from ariya.orchestrator.sprint import standup_digest, velocity
 from ariya.skills import registry
 from ariya.state import store
+from ariya.workspace.repo import ROOT as PROJECTS_ROOT
 
 router = APIRouter()
+
+API_TOKEN = os.getenv("ARIYA_API_TOKEN", "")
+
+
+def auth(authorization: str | None = Header(default=None)):
+    """If ARIYA_API_TOKEN is set, require Bearer token. Otherwise open."""
+    if not API_TOKEN:
+        return
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(401, "missing bearer token")
+    if authorization.split(" ", 1)[1].strip() != API_TOKEN:
+        raise HTTPException(403, "bad token")
 
 
 class ProjectIn(BaseModel):
     name: str
     brief: str
     auto_approve: bool = True
+    template: str = ""
 
 
-@router.post("/projects")
+@router.post("/projects", dependencies=[Depends(auth)])
 async def create_project(p: ProjectIn):
-    proj = await brain.intake(p.name, p.brief, p.auto_approve)
+    proj = await brain.intake(p.name, p.brief, p.auto_approve, p.template)
     return {"project_id": proj.project_id, "name": proj.name, "phase": proj.phase}
 
 
@@ -35,7 +54,46 @@ def get_project(project_id: str):
     return p.model_dump() if p else {"error": "not found"}
 
 
-@router.post("/projects/{project_id}/approve/{gate}")
+@router.get("/projects/{project_id}/files")
+def get_files(project_id: str):
+    repo = PROJECTS_ROOT / project_id / "repo"
+    if not repo.exists():
+        return {"files": []}
+    files = []
+    for path in repo.rglob("*"):
+        if ".git" in path.parts or not path.is_file():
+            continue
+        rel = path.relative_to(repo)
+        try:
+            size = path.stat().st_size
+        except OSError:
+            size = 0
+        files.append({"path": str(rel).replace("\\", "/"), "size": size})
+    return {"files": files}
+
+
+@router.get("/projects/{project_id}/file")
+def get_file(project_id: str, path: str):
+    repo = PROJECTS_ROOT / project_id / "repo"
+    target = (repo / path).resolve()
+    if not str(target).startswith(str(repo.resolve())):
+        raise HTTPException(400, "bad path")
+    if not target.is_file():
+        raise HTTPException(404, "not found")
+    return {"path": path, "content": target.read_text(encoding="utf-8", errors="replace")}
+
+
+@router.get("/projects/{project_id}/standup")
+def get_standup(project_id: str):
+    return standup_digest(project_id)
+
+
+@router.get("/projects/{project_id}/velocity")
+def get_velocity(project_id: str):
+    return velocity(project_id)
+
+
+@router.post("/projects/{project_id}/approve/{gate}", dependencies=[Depends(auth)])
 async def approve(project_id: str, gate: str, note: str = ""):
     await brain.approve_gate(project_id, gate, note)
     return {"ok": True}
@@ -61,6 +119,209 @@ def signals(limit: int = 50):
     return [s.model_dump() for s in bus.history(limit)]
 
 
+@router.get("/cost")
+def get_cost():
+    return cost.snapshot()
+
+
+@router.get("/dlq")
+def get_dlq():
+    return [{"signal": s.model_dump(), "error": err} for s, err in bus.dlq()]
+
+
+# ── Conversation persistence ────────────────────────────────────
+class MessageIn(BaseModel):
+    role: str   # 'user' | 'ariya' | 'system'
+    text: str
+    intent: str = ""
+
+@router.get("/conversation")
+def get_conversation(limit: int = 200):
+    """Return recent chat history, oldest first."""
+    return store.list_messages(limit=limit)
+
+@router.post("/conversation/message")
+def add_message(m: MessageIn):
+    mid = store.add_message(m.role, m.text, m.intent)
+    return {"ok": True, "message_id": mid}
+
+@router.delete("/conversation")
+def clear_conversation():
+    n = store.clear_messages()
+    return {"ok": True, "deleted": n}
+
+
+# ── ARIYA conversational chat ───────────────────────────────────
+class ChatIn(BaseModel):
+    text: str
+
+ARIYA_SYSTEM_PROMPT = (
+    "You are ARIYA — the orchestrator brain of an autonomous multi-agent "
+    "engineering studio. You command nine specialist agents: SCOUT (research), "
+    "ARCHITECT (specs), SENTINEL (review/security), FORGE-BE (backend), "
+    "FORGE-FE (frontend), PROBE (manual QA), GUARDIAN (automated tests), "
+    "PHOENIX (self-healing), and HERALD (delivery). "
+    "Speak in a calm, confident, slightly formal tone — think Jarvis. "
+    "Answers should be 1–3 short sentences unless the user asks for depth. "
+    "When the user describes a project to build, briefly acknowledge and say "
+    "you're routing it to SCOUT — do NOT actually create the project yourself "
+    "in chat (the orchestrator handles that separately). "
+    "When asked status/cost/repos questions, answer from the live context "
+    "the user provides."
+)
+
+def _classify_intent(text: str) -> str:
+    """Classify user input → 'project' | 'action' | 'command' | 'chat'."""
+    t = text.lower().strip()
+    if t in ("status", "report", "מה המצב", "סטטוס", "דוח"): return "command"
+    if t.startswith("approve ") or t.startswith("אשר "): return "command"
+
+    # Action verbs against EXISTING projects/code (scan, audit, fix, run tests, deploy)
+    action_triggers = ["scan ", "audit ", "review ", "fix bugs", "run tests",
+                       "test the ", "deploy ", "ship sprint", "execute sprint",
+                       "סרוק", "תבדוק", "תסקור", "תתקן באגים", "תריץ בדיקות",
+                       "תוציא דוח", "תוציא תריץ", "ספרינט", "תבדוק את"]
+    if any(tr in t for tr in action_triggers):
+        return "action"
+
+    # New project triggers
+    en_triggers = ["build ", "create ", "make ", "develop ", "design ",
+                   "ship ", "launch a ", "i want to build", "i need an app",
+                   "a website", "a system that"]
+    he_triggers = ["תבנה", "תפתח", "תעצב", "תקים", "תעלה", "בנה ",
+                   "פתח פרוייקט", "צור פרוייקט", "פרוייקט חדש",
+                   "אני רוצה לבנות", "אני צריך אפליקציה", "אני צריך מערכת"]
+    triggers = en_triggers + he_triggers
+    if any(tr in t for tr in triggers) and len(text.split()) >= 3:
+        return "project"
+    return "chat"
+
+async def _emit_action_pipeline(text: str, project_id: str | None):
+    """Emit a sequence of TASK signals so the agent network shows live activity."""
+    from ariya.models.signal import Signal, SignalType
+    flow = [
+        ("ARIYA",    "SCOUT",     "context_scan",      0.85),
+        ("SCOUT",    "ARCHITECT", "summary",           0.7),
+        ("ARCHITECT","FORGE-BE",  "be_task",           0.75),
+        ("ARCHITECT","FORGE-FE",  "fe_task",           0.75),
+        ("FORGE-BE", "GUARDIAN",  "test_request",      0.7),
+        ("FORGE-FE", "PROBE",     "manual_qa",         0.65),
+        ("GUARDIAN", "SENTINEL",  "review_request",    0.7),
+        ("SENTINEL", "PHOENIX",   "fix_required",      0.8),
+        ("PHOENIX",  "ARIYA",     "ready_for_delivery",0.9),
+    ]
+    for f, t, title, prio in flow:
+        sig = Signal(
+            from_agent=f, to_agent=t, signal_type=SignalType.TASK,
+            priority=prio, payload={"title": title, "trigger": text[:120]},
+            project_id=project_id,
+        )
+        await bus.publish(sig)
+        await asyncio.sleep(0.45)  # space them out so the UI animates
+
+@router.post("/chat")
+async def chat(c: ChatIn):
+    """ARIYA's conversational endpoint. Returns reply + detected intent."""
+    intent = _classify_intent(c.text)
+
+    if intent == "command":
+        # Caller (frontend) handles status/approve directly via existing endpoints.
+        return {"intent": "command", "reply": ""}
+
+    if intent == "action":
+        # Spawn the live signal flow in the background; respond immediately.
+        latest = store.list_projects()
+        pid = latest[-1].project_id if latest else None
+        asyncio.create_task(_emit_action_pipeline(c.text, pid))
+
+    # Build live context for ARIYA
+    projects = store.list_projects()
+    cost_snap = cost.snapshot()
+    integ = integration_status()
+    context = (
+        f"Active projects: {len(projects)} "
+        f"({', '.join(p.name + '/' + p.phase for p in projects[:5]) or 'none'}). "
+        f"Total spend: ${cost_snap.get('total_usd', 0):.4f}. "
+        f"GitHub: {'connected as ' + integ['github']['user'] if integ['github']['connected'] else 'not connected'}. "
+        f"ClickUp: {'connected as ' + integ['clickup']['user'] if integ['clickup']['connected'] else 'not connected'}."
+    )
+    prompt = f"Live system state: {context}\n\nUser: {c.text}\n\nReply as ARIYA:"
+
+    try:
+        reply = await gateway.complete(
+            agent_id="ARIYA",
+            prompt=prompt,
+            system=ARIYA_SYSTEM_PROMPT,
+            max_tokens=400,
+        )
+        # Strip mock prefix if in mock mode for cleaner UX
+        if reply.startswith("[MOCK::") or "Set ANTHROPIC_API_KEY" in reply:
+            t = c.text.lower()
+            if any(g in t for g in ["hello", "hi", "שלום", "היי"]):
+                reply = "Greetings, Sir. The agent network is online and standing by."
+            elif intent == "project":
+                reply = "Acknowledged. Decomposing the brief — routing to SCOUT."
+            elif "status" in t or "מצב" in t or len(projects) > 0:
+                reply = (f"Tracking {len(projects)} project(s). "
+                         f"Total spend ${cost_snap.get('total_usd', 0):.4f}. "
+                         f"Network nominal.")
+            else:
+                reply = ("Mock mode — language core offline. "
+                         "Add ANTHROPIC_API_KEY to .env for live conversation. "
+                         "Pipeline orchestration still works fully.")
+    except Exception as e:
+        reply = f"My language core is offline ({type(e).__name__}). Falling back to command mode."
+
+    final = reply.strip()
+    store.add_message("ariya", final, intent)
+    return {"intent": intent, "reply": final}
+
+
+@router.get("/integrations")
+def integrations():
+    return integration_status()
+
+
+class TokenIn(BaseModel):
+    token: str
+
+@router.post("/integrations/github/token")
+async def set_github_token(t: TokenIn):
+    from ariya.api.auth import _tokens
+    import httpx
+    _tokens["github"]["token"] = t.token
+    try:
+        async with httpx.AsyncClient(headers={"Authorization": f"token {t.token}", "Accept": "application/json"}) as c:
+            u = (await c.get("https://api.github.com/user")).json()
+            repos_r = (await c.get("https://api.github.com/user/repos?per_page=30&sort=pushed")).json()
+        _tokens["github"]["user"] = u.get("login", "")
+        _tokens["github"]["repos"] = [r["full_name"] for r in (repos_r if isinstance(repos_r, list) else [])]
+    except Exception:
+        pass
+    return {"ok": True, "user": _tokens["github"]["user"]}
+
+@router.post("/integrations/clickup/token")
+async def set_clickup_token(t: TokenIn):
+    from ariya.api.auth import _tokens
+    import httpx
+    _tokens["clickup"]["token"] = t.token
+    try:
+        async with httpx.AsyncClient(headers={"Authorization": t.token}) as c:
+            u = (await c.get("https://api.clickup.com/api/v2/user")).json()
+            teams = (await c.get("https://api.clickup.com/api/v2/team")).json()
+        _tokens["clickup"]["user"] = u.get("user", {}).get("username", "")
+        _tokens["clickup"]["teams"] = [tm["name"] for tm in teams.get("teams", [])]
+    except Exception:
+        pass
+    return {"ok": True, "user": _tokens["clickup"]["user"]}
+
+router.include_router(auth_router)
+
+@router.get("/health")
+def health():
+    return {"ok": True, "agents": len(store.all_agents()), "mock": gateway.__class__.__name__}
+
+
 @router.websocket("/ws")
 async def ws(websocket: WebSocket):
     await websocket.accept()
@@ -79,6 +340,7 @@ async def ws(websocket: WebSocket):
             await websocket.send_text(json.dumps({
                 "type": "agents",
                 "agents": store.all_agents(),
+                "cost": cost.snapshot(),
             }))
     except WebSocketDisconnect:
         return

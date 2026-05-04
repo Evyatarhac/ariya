@@ -3,13 +3,15 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+# Load .env BEFORE any module reads os.getenv at import time
+from ariya.config import settings  # noqa: F401  (load_dotenv side-effect)
+
 import uvicorn
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
 from ariya.api.routes import router
-from ariya.config import settings
 from ariya.orchestrator import brain
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")

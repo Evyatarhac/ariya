@@ -1,0 +1,42 @@
+{
+  "name": "ariya-vscode",
+  "displayName": "ARIYA",
+  "description": "ARIYA neural agent network — sidebar, activity overlay, signal stream",
+  "version": "0.1.0",
+  "publisher": "ariya",
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["Other"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [{ "id": "ariya", "title": "ARIYA", "icon": "$(circuit-board)" }]
+    },
+    "views": {
+      "ariya": [
+        { "id": "ariya.agents", "name": "Agents" },
+        { "id": "ariya.signals", "name": "Signal Stream" }
+      ]
+    },
+    "commands": [
+      { "command": "ariya.launchProject", "title": "ARIYA: Launch Project" },
+      { "command": "ariya.openDashboard", "title": "ARIYA: Open Dashboard" }
+    ],
+    "configuration": {
+      "title": "ARIYA",
+      "properties": {
+        "ariya.endpoint": { "type": "string", "default": "http://127.0.0.1:8000" },
+        "ariya.token": { "type": "string", "default": "" }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.4"
+  }
+}

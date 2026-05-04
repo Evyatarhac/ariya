@@ -1,13 +1,4 @@
-"""ARIYA — the orchestrator brain (spec §5).
-
-Responsibilities (MVP scope):
-  - Project intake (parse brief, persist project)
-  - Kick off the workflow (publish first TASK signal to SCOUT)
-  - Receive APPROVAL/FEEDBACK signals from SENTINEL & friends
-  - Manage approval gates (mark project state, optionally auto-advance in DEV mode)
-  - Track agent state and signal history for the dashboard
-  - Conflict resolution stub (FIXES.md: needs richer logic)
-"""
+"""ARIYA — orchestrator brain (spec §5)."""
 from __future__ import annotations
 import asyncio
 import logging
@@ -18,6 +9,7 @@ from ariya.gateway import gateway
 from ariya.models import Project, ProjectPhase, Signal, SignalType
 from ariya.state import store
 from ariya.agents import ALL_AGENT_CLASSES
+from ariya.orchestrator.router import best_agent
 
 log = logging.getLogger("ariya.brain")
 
@@ -35,9 +27,10 @@ class AriyaBrain:
         self._agents = []
         self._tasks: list[asyncio.Task] = []
         self._activity: list[dict] = []
-        # ARIYA also subscribes to its own topic for replies from agents
+        self._project_context: dict[str, dict] = {}  # project_id → enriched ctx
         bus.subscribe(self.AGENT_ID, self._receive)
         bus.add_listener(self._on_signal_for_log)
+        bus.set_context_injector(self._inject_context)
 
     # ---------- lifecycle ----------
     async def boot(self) -> None:
@@ -48,58 +41,86 @@ class AriyaBrain:
         store.update_agent(self.AGENT_ID, "idle")
         log.info("ARIYA booted with %d agents", len(self._agents))
 
+    # ---------- context injection (spec §3.3) ----------
+    def _inject_context(self, signal: Signal) -> Signal:
+        if not signal.project_id:
+            return signal
+        ctx = self._project_context.get(signal.project_id, {})
+        if ctx:
+            merged = {**ctx, **(signal.context_window or {})}
+            signal = signal.model_copy(update={"context_window": merged})
+        return signal
+
+    def update_project_context(self, project_id: str, **kv) -> None:
+        self._project_context.setdefault(project_id, {}).update(kv)
+
     # ---------- intake ----------
-    async def intake(self, name: str, brief: str, auto_approve: bool = True) -> Project:
+    async def intake(self, name: str, brief: str, auto_approve: bool = True,
+                     template: str = "") -> Project:
+        if template:
+            from ariya.templates import expand_brief
+            brief = expand_brief(brief, template)
         project = Project(name=name, brief=brief, phase=ProjectPhase.RESEARCH)
         store.save_project(project)
-        # Project decomposition (logged, not yet driving execution beyond high level)
+        self.update_project_context(project.project_id,
+                                    project_name=name, template=template,
+                                    auto_approve=auto_approve)
         try:
             plan = await gateway.complete(
                 self.AGENT_ID,
                 f"Decompose this project brief into epics + tasks (markdown):\n{brief}",
                 system=self.SYSTEM_PROMPT,
+                project_id=project.project_id,
             )
             project.artifacts["plan"] = plan
             store.save_project(project)
         except Exception:
             log.exception("decomposition failed")
 
-        # Kick the pipeline: first TASK signal to SCOUT
+        # weighted route — research candidates
+        chosen = best_agent(["SCOUT", "ARCHITECT"], task_keywords=["research", "market", "feature"], priority=4)
+        log.info("intake routed to %s (score=%s)", chosen.agent_id, chosen.score)
+
         await bus.publish(Signal(
             from_agent=self.AGENT_ID,
-            to_agent="SCOUT",
+            to_agent=chosen.agent_id,
             signal_type=SignalType.TASK,
-            priority=0.8,
-            payload={"title": "research", "brief": brief, "project_name": name},
+            priority=0.85,
+            payload={"title": "research", "brief": brief, "project_name": name,
+                     "route_score": chosen.score, "route_reasons": chosen.reasons},
             project_id=project.project_id,
-            context_window={"auto_approve": auto_approve},
         ))
         return project
 
-    # ---------- signal handling ----------
+    # ---------- reply handling ----------
     async def _receive(self, signal: Signal) -> None:
-        """ARIYA's own inbox — process replies from agents."""
         title = signal.payload.get("title", "")
         project = store.get_project(signal.project_id) if signal.project_id else None
         if not project:
             return
-
         auto = bool(signal.context_window.get("auto_approve", True))
 
         if title == "arch_approved":
             project.phase = ProjectPhase.DEVELOPMENT
             project.approvals["architecture"] = True
             store.save_project(project)
-            store.set_approval(project.project_id, "architecture", True, "auto")
+            store.set_approval(project.project_id, "architecture", True, "auto" if auto else "")
 
         elif title == "pr_reviewed":
             verdict = signal.payload.get("verdict", "APPROVE")
             source = signal.payload.get("source", "")
             if verdict == "APPROVE" and source in ("be_pr", "fe_pr"):
-                # Once both BE and FE approved we advance to TESTING; for MVP fire on each
                 project.phase = ProjectPhase.TESTING
                 store.save_project(project)
-                # Kick PROBE + GUARDIAN
+                # CONTRACT_UPDATE: BE → FE
+                if source == "be_pr":
+                    await bus.publish(Signal(
+                        from_agent=self.AGENT_ID, to_agent="FORGE-FE",
+                        signal_type=SignalType.CONTRACT_UPDATE, priority=0.6,
+                        payload={"title": "contract_update",
+                                 "files": signal.payload.get("original_payload", {}).get("files", [])},
+                        project_id=project.project_id,
+                    ))
                 code = signal.payload.get("original_payload", {}).get("code", "")
                 for tester in ("PROBE", "GUARDIAN"):
                     await bus.publish(Signal(
@@ -137,13 +158,12 @@ class AriyaBrain:
             "title": signal.payload.get("title", ""),
             "project_id": signal.project_id,
         })
-        if len(self._activity) > 500:
-            self._activity = self._activity[-500:]
+        if len(self._activity) > 1000:
+            self._activity = self._activity[-1000:]
 
     def activity(self, limit: int = 100) -> list[dict]:
         return self._activity[-limit:]
 
-    # ---------- approvals (human-in-the-loop) ----------
     async def approve_gate(self, project_id: str, gate: str, note: str = "") -> None:
         store.set_approval(project_id, gate, True, note)
         project = store.get_project(project_id)

@@ -1,46 +1,119 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<title>ARIYA — Neural Command</title>
-<link rel="stylesheet" href="/static/styles.css" />
+<meta charset="UTF-8"/>
+<title>ARIYA</title>
+<link rel="stylesheet" href="/static/styles.css"/>
 </head>
 <body>
+
+<!-- Top bar -->
 <header class="topbar">
-  <div class="brand">
-    <span class="logo">◉</span>
-    <span class="title">A R I Y A</span>
-    <span class="sub">Autonomous R&amp;D Intelligence Yielding Architecture</span>
+  <div class="brand">A · R · I · Y · A</div>
+  <div class="integrations">
+    <div class="int-dot" id="int-git"    data-label="Git"     title="Git">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="5" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="19" r="2"/><line x1="12" y1="7" x2="12" y2="14"/><line x1="12" y1="14" x2="5" y2="17"/><line x1="12" y1="14" x2="19" y2="17"/></svg>
+      <span>Git</span>
+    </div>
+    <div class="int-dot" id="int-clickup" data-label="ClickUp" title="ClickUp">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 9 12 3 20 9"/><rect x="4" y="9" width="16" height="12" rx="2"/><line x1="9" y1="21" x2="9" y2="14"/><line x1="15" y1="21" x2="15" y2="14"/></svg>
+      <span>ClickUp</span>
+    </div>
+    <div class="int-dot" id="int-ide" data-label="IDE" title="Cursor / VS Code">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+      <span>IDE</span>
+    </div>
   </div>
-  <div class="status" id="status">connecting…</div>
+  <div class="ws-status" id="wsStatus">●</div>
 </header>
 
-<main class="grid">
-  <section class="panel terminal">
-    <h2>Command Terminal</h2>
-    <textarea id="brief" rows="4" placeholder="ARIYA, build me a SaaS dashboard for restaurant orders. React + Node + PostgreSQL. Production-ready."></textarea>
-    <div class="row">
-      <input id="pname" placeholder="Project name" />
-      <button id="launch">⟶ Launch Project</button>
+<!-- HUD bar (live system telemetry) -->
+<div class="hud" id="hud">
+  <div class="hud-cell"><span class="hud-k">PROJECTS</span><span class="hud-v" id="hudProjects">0</span></div>
+  <div class="hud-cell"><span class="hud-k">PHASE</span><span class="hud-v" id="hudPhase">—</span></div>
+  <div class="hud-cell"><span class="hud-k">SIGNALS</span><span class="hud-v" id="hudSignals">0/min</span></div>
+  <div class="hud-cell"><span class="hud-k">COST</span><span class="hud-v" id="hudCost">$0.0000</span></div>
+  <div class="hud-cell"><span class="hud-k">AGENTS</span><span class="hud-v" id="hudAgents">0 active</span></div>
+</div>
+
+<!-- Phase tracker strip -->
+<div class="phase-strip" id="phaseStrip"></div>
+
+<!-- Live activity ticker -->
+<div class="ticker" id="ticker">
+  <div class="ticker-label">LIVE</div>
+  <div class="ticker-feed" id="tickerFeed"></div>
+</div>
+
+<!-- Toast stack -->
+<div class="toast-stack" id="toastStack"></div>
+
+<!-- Main stage -->
+<div class="stage">
+
+  <!-- Neural mesh canvas (deepest layer) -->
+  <canvas id="mesh" class="mesh"></canvas>
+
+  <!-- Agent constellation SVG (markers + labels) -->
+  <svg id="constellation" class="constellation"></svg>
+
+  <!-- Color legend -->
+  <div class="mesh-legend" id="meshLegend"></div>
+
+  <!-- Central orb -->
+  <div class="orb-shell" id="orbShell">
+    <div class="orb" id="orb">
+      <div class="ring r1"></div>
+      <div class="ring r2"></div>
+      <div class="ring r3"></div>
+      <div class="wave w1"></div>
+      <div class="wave w2"></div>
+      <div class="wave w3"></div>
+      <div class="orbital o1"><span class="dot"></span></div>
+      <div class="orbital o2"><span class="dot"></span></div>
+      <div class="orbital o3"><span class="dot"></span></div>
+      <div class="core" id="core">
+        <div class="plasma"></div>
+        <div class="iris"></div>
+      </div>
+      <div class="orb-name">ARIYA</div>
     </div>
-    <div id="reply" class="reply"></div>
-  </section>
+  </div>
 
-  <section class="panel agents">
-    <h2>Agent Neural Grid</h2>
-    <div id="agents" class="agent-grid"></div>
-  </section>
+  <!-- Chat strip (fixed-bottom, centre) -->
+  <div class="chat-area">
+    <div class="messages" id="messages"></div>
+    <div class="composer">
+      <button class="mic-btn" id="micBtn" title="Hold to speak">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="9" y="2" width="6" height="12" rx="3"/>
+          <path d="M5 10a7 7 0 0 0 14 0"/>
+          <line x1="12" y1="17" x2="12" y2="22"/>
+        </svg>
+      </button>
+      <input id="chatInput" placeholder="ARIYA, what should we build today?" autocomplete="off"/>
+      <button class="send-btn" id="sendBtn">→</button>
+      <button class="tts-btn" id="ttsToggle" title="Toggle voice response">🔊</button>
+      <button class="demo-btn" id="demoBtn" title="Launch a live demo project">▶ Demo</button>
+    </div>
+  </div>
 
-  <section class="panel projects">
-    <h2>Projects</h2>
-    <div id="projects"></div>
-  </section>
+</div>
 
-  <section class="panel activity">
-    <h2>Neural Signal Flow</h2>
-    <div id="activity" class="activity-list"></div>
-  </section>
-</main>
+<!-- Right panel: agent cubes -->
+<aside class="agent-rail" id="agentRail">
+  <div class="rail-label">AGENTS</div>
+  <div id="agentCubes" class="agent-cubes"></div>
+</aside>
+
+<!-- Integration modals (shown on click) -->
+<div class="int-modal hidden" id="intModal">
+  <div class="int-modal-box">
+    <button class="int-modal-close" id="intModalClose">×</button>
+    <h3 id="intModalTitle"></h3>
+    <div id="intModalBody"></div>
+  </div>
+</div>
 
 <script src="/static/app.js"></script>
 </body>
