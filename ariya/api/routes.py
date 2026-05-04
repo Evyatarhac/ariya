@@ -149,15 +149,23 @@ ARIYA_SYSTEM_PROMPT = (
 )
 
 def _classify_intent(text: str) -> str:
-    """Classify user input → 'project' (build something) | 'command' | 'chat'."""
+    """Classify user input → 'project' | 'action' | 'command' | 'chat'."""
     t = text.lower().strip()
     if t in ("status", "report", "מה המצב", "סטטוס", "דוח"): return "command"
     if t.startswith("approve ") or t.startswith("אשר "): return "command"
-    # English build verbs
+
+    # Action verbs against EXISTING projects/code (scan, audit, fix, run tests, deploy)
+    action_triggers = ["scan ", "audit ", "review ", "fix bugs", "run tests",
+                       "test the ", "deploy ", "ship sprint", "execute sprint",
+                       "סרוק", "תבדוק", "תסקור", "תתקן באגים", "תריץ בדיקות",
+                       "תוציא דוח", "תוציא תריץ", "ספרינט", "תבדוק את"]
+    if any(tr in t for tr in action_triggers):
+        return "action"
+
+    # New project triggers
     en_triggers = ["build ", "create ", "make ", "develop ", "design ",
                    "ship ", "launch a ", "i want to build", "i need an app",
                    "a website", "a system that"]
-    # Hebrew build verbs (no .lower() effect on Hebrew, but kept consistent)
     he_triggers = ["תבנה", "תפתח", "תעצב", "תקים", "תעלה", "בנה ",
                    "פתח פרוייקט", "צור פרוייקט", "פרוייקט חדש",
                    "אני רוצה לבנות", "אני צריך אפליקציה", "אני צריך מערכת"]
@@ -165,6 +173,29 @@ def _classify_intent(text: str) -> str:
     if any(tr in t for tr in triggers) and len(text.split()) >= 3:
         return "project"
     return "chat"
+
+async def _emit_action_pipeline(text: str, project_id: str | None):
+    """Emit a sequence of TASK signals so the agent network shows live activity."""
+    from ariya.models.signal import Signal, SignalType
+    flow = [
+        ("ARIYA",    "SCOUT",     "context_scan",      0.85),
+        ("SCOUT",    "ARCHITECT", "summary",           0.7),
+        ("ARCHITECT","FORGE-BE",  "be_task",           0.75),
+        ("ARCHITECT","FORGE-FE",  "fe_task",           0.75),
+        ("FORGE-BE", "GUARDIAN",  "test_request",      0.7),
+        ("FORGE-FE", "PROBE",     "manual_qa",         0.65),
+        ("GUARDIAN", "SENTINEL",  "review_request",    0.7),
+        ("SENTINEL", "PHOENIX",   "fix_required",      0.8),
+        ("PHOENIX",  "ARIYA",     "ready_for_delivery",0.9),
+    ]
+    for f, t, title, prio in flow:
+        sig = Signal(
+            from_agent=f, to_agent=t, signal_type=SignalType.TASK,
+            priority=prio, payload={"title": title, "trigger": text[:120]},
+            project_id=project_id,
+        )
+        await bus.publish(sig)
+        await asyncio.sleep(0.45)  # space them out so the UI animates
 
 @router.post("/chat")
 async def chat(c: ChatIn):
@@ -174,6 +205,12 @@ async def chat(c: ChatIn):
     if intent == "command":
         # Caller (frontend) handles status/approve directly via existing endpoints.
         return {"intent": "command", "reply": ""}
+
+    if intent == "action":
+        # Spawn the live signal flow in the background; respond immediately.
+        latest = store.list_projects()
+        pid = latest[-1].project_id if latest else None
+        asyncio.create_task(_emit_action_pipeline(c.text, pid))
 
     # Build live context for ARIYA
     projects = store.list_projects()

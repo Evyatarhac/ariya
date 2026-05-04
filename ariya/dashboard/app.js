@@ -872,6 +872,27 @@ function recordSignalTimes(n) {
 }
 function signalsPerMin() { return _signalTimes.length; }
 
+function pushTicker(sig) {
+  const feed = $("tickerFeed"); if (!feed) return;
+  const item = document.createElement("div");
+  item.className = "tick-item";
+  const fromColor = agentColor(sig.from);
+  const toColor   = agentColor(sig.to);
+  item.innerHTML = `
+    <span class="tk-from" style="color:${fromColor}">${sig.from}</span>
+    <span class="tk-arrow">▶</span>
+    <span class="tk-to" style="color:${toColor}">${sig.to}</span>
+    <span class="tk-type ${sig.type}">${sig.type}</span>
+    <span class="tk-title">${sig.title || ""}</span>
+  `;
+  feed.appendChild(item);
+  while (feed.children.length > 8) feed.firstChild.remove();
+  // auto-scroll to keep newest visible
+  feed.scrollLeft = feed.scrollWidth;
+  // fade-out after 12s
+  setTimeout(() => { item.style.transition = "opacity 0.6s"; item.style.opacity = "0.2"; }, 12000);
+}
+
 function showToast(level, title, msg, ttl = 3500) {
   const stack = $("toastStack"); if (!stack) return;
   const t = document.createElement("div");
@@ -906,8 +927,14 @@ async function tick() {
     if (lastSeen === -1) { lastSeen = activity.length; }
     const newOnes = activity.slice(lastSeen);
     lastSeen = activity.length;
-    newOnes.forEach(narrate);
+    newOnes.forEach(s => { narrate(s); pushTicker(s); });
     recordSignalTimes(newOnes.length);
+
+    // Toast on important signals (alerts + completed reviews)
+    newOnes.forEach(s => {
+      if (s.type === "ALERT")    showToast("error", `Alert · ${s.from}`, s.title || "agent alert");
+      if (s.type === "APPROVAL") showToast("success", `${s.from} approved`, s.title || "");
+    });
 
     // Orb thinking state
     const activeCount = agents.filter(a => a.status === "processing").length;

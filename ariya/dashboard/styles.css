@@ -540,6 +540,70 @@ html, body {
 .phase-step.active .plabel { color: var(--accent); text-shadow: 0 0 6px var(--accent); }
 .phase-step .plabel { transition: color 0.3s; }
 .phase-sep { width: 18px; height: 1px; background: rgba(95,216,255,0.12); }
+
+/* ── LIVE ACTIVITY TICKER ─────────────────────────── */
+.ticker {
+  position: fixed; top: 110px; left: 50%;
+  transform: translateX(-50%);
+  display: flex; align-items: center; gap: 14px;
+  width: min(720px, 80%); height: 26px;
+  background: rgba(0,8,14,0.45);
+  border: 1px solid rgba(95,216,255,0.10);
+  border-radius: 14px;
+  padding: 0 14px;
+  z-index: 47;
+  pointer-events: none;
+  overflow: hidden;
+  font-size: 10px; letter-spacing: 1.5px;
+}
+.ticker-label {
+  color: var(--bad);
+  font-weight: 700;
+  letter-spacing: 3px;
+  display: flex; align-items: center; gap: 5px;
+  flex-shrink: 0;
+}
+.ticker-label::before {
+  content: ""; display: inline-block;
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--bad);
+  box-shadow: 0 0 6px var(--bad);
+  animation: liveBlink 1.2s ease-in-out infinite;
+}
+@keyframes liveBlink { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+.ticker-feed {
+  flex: 1; height: 100%;
+  display: flex; align-items: center; gap: 22px;
+  overflow: hidden;
+  white-space: nowrap;
+  position: relative;
+  mask-image: linear-gradient(90deg, transparent 0, black 8%, black 92%, transparent 100%);
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, black 8%, black 92%, transparent 100%);
+}
+.tick-item {
+  display: inline-flex; align-items: center; gap: 8px;
+  color: var(--text);
+  animation: tickIn 0.3s ease-out;
+  flex-shrink: 0;
+}
+.tick-item .tk-from, .tick-item .tk-to {
+  font-weight: 600;
+  text-shadow: 0 0 6px currentColor;
+}
+.tick-item .tk-arrow { color: var(--dim); font-size: 9px; }
+.tick-item .tk-type {
+  font-size: 9px; letter-spacing: 2px;
+  padding: 1px 6px; border-radius: 3px;
+  background: rgba(95,216,255,0.08); color: var(--accent);
+}
+.tick-item .tk-type.APPROVAL { background: rgba(76,255,170,0.12); color: var(--good); }
+.tick-item .tk-type.ALERT    { background: rgba(255,107,107,0.15); color: var(--bad); }
+.tick-item .tk-type.CONTRACT_UPDATE { background: rgba(180,130,255,0.12); color: #b388ff; }
+.tick-item .tk-title { color: var(--dim); font-size: 9px; max-width: 120px; overflow: hidden; text-overflow: ellipsis; }
+@keyframes tickIn {
+  from { opacity: 0; transform: translateX(20px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
 @keyframes phasePulse {
   0%,100% { transform: scale(1);    box-shadow: 0 0 12px var(--accent), 0 0 22px var(--accent); }
   50%      { transform: scale(1.4); box-shadow: 0 0 18px var(--hot),     0 0 32px var(--accent); }
