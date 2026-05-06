@@ -2,6 +2,7 @@
 __pycache__/
 *.pyc
 .env
+.env.openclaw.local
 *.db
 *.sqlite
 .DS_Store
